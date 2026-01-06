@@ -163,6 +163,50 @@ Your output should be a single refined prompt ready for Imagen-4.`
 }
 
 /**
+ * Generate a marketing headline using Gemini
+ * This is called when user selects an image to create auto-text overlay
+ */
+export function generateHeadlinePrompt(subject: string): string {
+  return `Generate a single, short marketing headline (5 words max) for a design image about "${subject}". Be creative and punchy. Return ONLY the headline text, nothing else.`
+}
+
+/**
+ * Generate text rendering prompt for Imagen-4
+ * Special mode: renders text directly in the image
+ * Example: "SALE" -> "Render the word SALE in bold neon smoke effect, cinematic lighting"
+ */
+export function generateTextRenderingPrompt(text: string, style?: StyleChip): string {
+  const stylePrompt = style ? style.prompt : 'cinematic, professional'
+  
+  return `Render the word "${text}" in ${stylePrompt}, bold typography, dramatic composition, high contrast, 8K resolution, professional design, centered, artistic effects`
+}
+
+/**
+ * Build prompt with optional text baking/rendering
+ * If useAIText is true, include instruction to render text in the image itself
+ */
+export function buildPromptWithTextRendering(
+  subject: string,
+  text: string,
+  useAIText: boolean,
+  template: TemplateType,
+  style?: StyleChip
+): string {
+  if (useAIText && text) {
+    // Text baking mode: render text IN the image itself
+    const stylePrompt = style ? style.prompt : 'cinematic, professional'
+    return `Background: ${subject}, with text "${text}" rendered ${stylePrompt}, bold typography, dramatic composition, high contrast, 8K resolution, professional design`
+  }
+  
+  // Normal mode: generate image without text
+  return buildCompletPrompt({
+    subject,
+    template,
+    style,
+  })
+}
+
+/**
  * Get available style chips for UI selection
  */
 export function getStyleChips(): StyleChip[] {

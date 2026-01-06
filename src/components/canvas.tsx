@@ -170,6 +170,8 @@ export function Canvas({ brandData }: { brandData?: any }) {
   const [showImageGrid, setShowImageGrid] = useState(false)
   const [imagePrompt, setImagePrompt] = useState('')
   const [promptInput, setPromptInput] = useState('')
+  const [useAIText, setUseAIText] = useState(false)
+  const [generatingHeadline, setGeneratingHeadline] = useState(false)
   const { user } = useAuth()
 
   // Initialize canvas
@@ -283,6 +285,7 @@ export function Canvas({ brandData }: { brandData?: any }) {
 
     try {
       console.log('🚀 Generating images with prompt:', prompt)
+      console.log('🎨 Using AI Text Effects:', useAIText)
 
       const response = await fetch('/api/generateImage', {
         method: 'POST',
@@ -294,6 +297,8 @@ export function Canvas({ brandData }: { brandData?: any }) {
           secondaryColor: brandData?.secondaryColor,
           accentColor: brandData?.accentColor,
           userId: user?.id,
+          useAIText,
+          aiTextContent: useAIText ? promptInput : undefined,
         }),
       })
 
@@ -324,24 +329,92 @@ export function Canvas({ brandData }: { brandData?: any }) {
     }
   }
 
-  const handleImageSelect = (image: any) => {
-    // Add image to canvas
+  const handleImageSelect = async (image: any) => {
     if (!fabricCanvasRef.current) return
 
-    const img = new Image()
-    img.onload = () => {
-      const fabricImage = new (FabricCanvas as any).Image(img, {
-        left: 100,
-        top: 100,
-        scaleX: 0.8,
-        scaleY: 0.8,
-      })
-      fabricCanvasRef.current!.add(fabricImage)
-      fabricCanvasRef.current!.renderAll()
+    try {
+      console.log('📸 Loading image as background...')
+      
+      // Add image as background (scale to fit canvas)
+      const imgUrl = image.base64 || image.url
+      const img = new Image()
+      
+      img.onload = async () => {
+        const fabricImage = new (FabricCanvas as any).Image(img, {
+          left: 0,
+          top: 0,
+          width: 1080,
+          height: 1350,
+          selectable: false,
+          evented: false,
+        })
+        
+        // Add image and set it to be behind text
+        fabricImage.zIndex = 0
+        fabricCanvasRef.current!.add(fabricImage)
+        fabricCanvasRef.current!.renderAll()
+        console.log('✅ Image added to canvas as background')
+        
+        // Auto-generate and add headline text
+        await generateAndAddHeadline()
+      }
+
+      img.src = imgUrl
+    } catch (error) {
+      console.error('❌ Error loading image:', error)
+      alert('Failed to load image')
+    }
+  }
+
+  const generateAndAddHeadline = async () => {
+    if (!promptInput.trim()) {
+      console.log('ℹ️ No prompt, skipping headline generation')
+      return
     }
 
-    // Use base64 if available for immediate loading, otherwise use URL
-    img.src = image.base64 || image.url
+    try {
+      setGeneratingHeadline(true)
+      console.log('✨ Generating headline with Gemini...')
+
+      // Call Gemini to generate a headline
+      const response = await fetch('/api/generateHeadline', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject: promptInput,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (data.headline && fabricCanvasRef.current) {
+        console.log('💭 Generated headline:', data.headline)
+
+        // Add text to canvas
+        const textbox = new Textbox(data.headline, {
+          left: 50,
+          top: 50,
+          width: 980,
+          fontSize: 48,
+          fontWeight: 'bold',
+          fill: brandData?.primaryColor || '#FFFFFF',
+          editable: true,
+          fontFamily: brandData?.fonts?.[0] || 'Arial',
+          textAlign: 'center',
+          stroke: '#000000',
+          strokeWidth: 2,
+        })
+
+        fabricCanvasRef.current.add(textbox)
+        fabricCanvasRef.current.renderAll()
+        console.log('✅ Headline added to canvas')
+      }
+    } catch (error) {
+      console.error('❌ Headline generation error:', error)
+      // Don't alert - this is optional
+    } finally {
+      setGeneratingHeadline(false)
+    }
   }
 
   return (
@@ -399,6 +472,23 @@ export function Canvas({ brandData }: { brandData?: any }) {
                       className="w-full bg-gray-800 border border-gray-700 text-white px-3 py-2 rounded-lg text-xs mb-2 placeholder-gray-600 focus:outline-none focus:border-blue-500"
                       disabled={generatingImages}
                     />
+                    
+                    {/* AI Text Effects Toggle */}
+                    <div className="bg-gray-800 border border-gray-700 rounded-lg p-3 mb-3">
+                      <label className="flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={useAIText}
+                          onChange={(e) => setUseAIText(e.target.checked)}
+                          className="w-4 h-4 rounded"
+                        />
+                        <span className="ml-2 text-xs text-gray-300">Use AI Text Effects?</span>
+                      </label>
+                      <p className="text-xs text-gray-500 mt-2">
+                        ⚠️ Renders text in image (non-editable). Example: "SALE" rendered in smoke effect.
+                      </p>
+                    </div>
+
                     <button
                       onClick={generateImages}
                       disabled={generatingImages || !promptInput.trim()}

@@ -61,6 +61,10 @@ export function ImageGrid({ images, prompt, onSelect, onClose }: ImageGridProps)
     setSelectedImageId(image.id)
     if (onSelect) {
       onSelect(image)
+      // Close modal after selection
+      setTimeout(() => {
+        if (onClose) onClose()
+      }, 500)
     }
   }
 

@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { generateImages } from '@/lib/vertex-ai'
-import { buildCompletPrompt, TemplateType } from '@/lib/prompt-engineering'
+import { buildCompletPrompt, buildPromptWithTextRendering, TemplateType } from '@/lib/prompt-engineering'
 import { createClient } from '@supabase/supabase-js'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -28,6 +28,8 @@ interface GenerateImageRequest {
   secondaryColor?: string
   accentColor?: string
   userId?: string
+  useAIText?: boolean
+  aiTextContent?: string
 }
 
 interface GeneratedImage {
@@ -49,7 +51,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<GenerateI
   try {
     const body: GenerateImageRequest = await request.json()
 
-    const { prompt: userPrompt, template, primaryColor, secondaryColor, accentColor, userId } = body
+    const { prompt: userPrompt, template, primaryColor, secondaryColor, accentColor, userId, useAIText, aiTextContent } = body
 
     if (!userPrompt || !userPrompt.trim()) {
       return NextResponse.json(
@@ -76,15 +78,30 @@ export async function POST(request: NextRequest): Promise<NextResponse<GenerateI
     }
 
     console.log('🧠 Building prompt for Imagen-4...')
+    console.log('🎨 AI Text Effects enabled:', useAIText)
 
     // Build the complete prompt with brand context
-    const completePrompt = buildCompletPrompt({
-      subject: userPrompt.trim(),
-      template,
-      primaryColor,
-      secondaryColor,
-      accentColor,
-    })
+    let completePrompt: string
+    
+    if (useAIText && aiTextContent) {
+      // Text baking mode: render text in the image
+      completePrompt = buildPromptWithTextRendering(
+        userPrompt.trim(),
+        aiTextContent.trim(),
+        true,
+        template
+      )
+      console.log('🎨 Using AI Text Rendering mode')
+    } else {
+      // Normal mode: just the image
+      completePrompt = buildCompletPrompt({
+        subject: userPrompt.trim(),
+        template,
+        primaryColor,
+        secondaryColor,
+        accentColor,
+      })
+    }
 
     console.log('📝 Final Imagen prompt:', completePrompt)
     console.log('🎨 Template:', template)
