@@ -50,7 +50,7 @@ export async function generateImages(options: ImageGenerationOptions): Promise<s
     console.log('✅ Vertex AI initialized')
 
     const generativeModel = vertexAI.getGenerativeModel({
-      model: 'imagen-4.0-fast-generate',
+      model: 'imagegeneration@006',
     })
     console.log('✅ Generative model loaded')
 
