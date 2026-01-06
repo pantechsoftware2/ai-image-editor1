@@ -41,8 +41,9 @@ export default function EditorPage() {
   const extractBrand = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!url.trim()) {
-      setError('Please enter a website URL')
+    const cleanUrl = url.trim()
+    if (!cleanUrl) {
+      setError('❌ Please enter a website URL (e.g., apple.com or https://apple.com)')
       return
     }
 

@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Canvas as FabricCanvas, Rect, Textbox } from 'fabric'
+import { ImageGrid } from './image-grid'
+import { useAuth } from '@/lib/auth-context'
 
 interface CanvasTemplate {
   name: string
@@ -163,6 +165,12 @@ export function Canvas({ brandData }: { brandData?: any }) {
   const fabricCanvasRef = useRef<InstanceType<typeof FabricCanvas> | null>(null)
   const [selectedTemplate, setSelectedTemplate] = useState<string>('image-text')
   const [canvasSize, setCanvasSize] = useState({ width: 1080, height: 1350 })
+  const [generatingImages, setGeneratingImages] = useState(false)
+  const [generatedImages, setGeneratedImages] = useState<any[]>([])
+  const [showImageGrid, setShowImageGrid] = useState(false)
+  const [imagePrompt, setImagePrompt] = useState('')
+  const [promptInput, setPromptInput] = useState('')
+  const { user } = useAuth()
 
   // Initialize canvas
   useEffect(() => {
@@ -263,6 +271,74 @@ export function Canvas({ brandData }: { brandData?: any }) {
     link.click()
   }
 
+  const generateImages = async () => {
+    const prompt = promptInput.trim()
+    if (!prompt) {
+      alert('❌ Please enter a description (e.g., "a steaming cup of coffee")')
+      return
+    }
+
+    setGeneratingImages(true)
+    setImagePrompt(prompt)
+
+    try {
+      console.log('🚀 Generating images with prompt:', prompt)
+
+      const response = await fetch('/api/generateImage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          template: selectedTemplate,
+          primaryColor: brandData?.primaryColor,
+          secondaryColor: brandData?.secondaryColor,
+          accentColor: brandData?.accentColor,
+          userId: user?.id,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to generate images')
+      }
+
+      const data = await response.json()
+
+      if (data.success && data.images) {
+        console.log('✨ Generated images:', data.images.length)
+        setGeneratedImages(data.images)
+        setShowImageGrid(true)
+        setPromptInput('')
+      } else {
+        throw new Error(data.error || 'Failed to generate images')
+      }
+    } catch (error: any) {
+      console.error('Generation error:', error)
+      alert(`❌ Error: ${error.message}`)
+    } finally {
+      setGeneratingImages(false)
+    }
+  }
+
+  const handleImageSelect = (image: any) => {
+    // Add image to canvas
+    if (!fabricCanvasRef.current) return
+
+    const img = new Image()
+    img.onload = () => {
+      const fabricImage = new (FabricCanvas as any).Image(img, {
+        left: 100,
+        top: 100,
+        scaleX: 0.8,
+        scaleY: 0.8,
+      })
+      fabricCanvasRef.current!.add(fabricImage)
+      fabricCanvasRef.current!.renderAll()
+    }
+
+    // Use base64 if available for immediate loading, otherwise use URL
+    img.src = image.base64 || image.url
+  }
+
   return (
     <div className="min-h-screen bg-black p-6">
       <div className="max-w-7xl mx-auto">
@@ -300,7 +376,40 @@ export function Canvas({ brandData }: { brandData?: any }) {
 
               <div>
                 <h2 className="text-lg font-semibold text-white mb-4">Tools</h2>
-                <div className="space-y-2">
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs text-gray-400 block mb-2">
+                      Generate Image
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g., steaming coffee cup"
+                      value={promptInput}
+                      onChange={(e) => setPromptInput(e.target.value)}
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter') {
+                          generateImages()
+                        }
+                      }}
+                      className="w-full bg-gray-800 border border-gray-700 text-white px-3 py-2 rounded-lg text-xs mb-2 placeholder-gray-600 focus:outline-none focus:border-blue-500"
+                      disabled={generatingImages}
+                    />
+                    <button
+                      onClick={generateImages}
+                      disabled={generatingImages || !promptInput.trim()}
+                      className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 text-white font-semibold py-2 px-4 rounded-lg transition"
+                    >
+                      {generatingImages ? (
+                        <>
+                          <span className="inline-block animate-spin mr-2">⌛</span>
+                          Generating...
+                        </>
+                      ) : (
+                        '🎨 Generate Image'
+                      )}
+                    </button>
+                  </div>
+
                   <button
                     onClick={addText}
                     className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg transition"
@@ -363,6 +472,15 @@ export function Canvas({ brandData }: { brandData?: any }) {
           </div>
         </div>
       </div>
+
+      {showImageGrid && generatedImages.length > 0 && (
+        <ImageGrid
+          images={generatedImages}
+          prompt={imagePrompt}
+          onSelect={handleImageSelect}
+          onClose={() => setShowImageGrid(false)}
+        />
+      )}
     </div>
   )
 }
