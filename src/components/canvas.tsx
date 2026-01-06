@@ -254,6 +254,7 @@ export function Canvas({ brandData }: { brandData?: any }) {
     const dataURL = fabricCanvasRef.current.toDataURL({
       format: 'png',
       quality: 1,
+      multiplier: 2,
     })
 
     const link = document.createElement('a')

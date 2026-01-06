@@ -72,6 +72,12 @@ export default function SignIn() {
             </div>
           )}
 
+          {/* Info box for email confirmation */}
+          <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded-lg mb-4 text-xs">
+            <p className="font-semibold mb-1">ℹ️ Email Confirmation</p>
+            <p>A confirmation link has been sent to your email. Click it to verify, then sign in.</p>
+          </div>
+
           <form onSubmit={handleSignIn} className="space-y-4 mb-6">
             <Input
               type="email"

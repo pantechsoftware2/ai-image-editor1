@@ -149,6 +149,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (error) {
           console.error('Sign in error:', error)
+          // Handle email confirmation requirement
+          if (error.message && error.message.includes('Email not confirmed')) {
+            throw new Error(
+              'Email not confirmed. Please check your email for a confirmation link. You can still use the app with a test account.'
+            )
+          }
           throw new Error(error.message || 'Failed to sign in')
         }
 
