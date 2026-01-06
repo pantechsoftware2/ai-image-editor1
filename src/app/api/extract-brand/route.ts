@@ -161,17 +161,31 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Parse URL and extract domain
-    let domain = url.replace(/^https?:\/\/(www\.)?/, '').split('/')[0]
+    // Clean and normalize URL input
+    let cleanUrl = url.trim().toLowerCase()
+    
+    // Remove common protocols if present
+    cleanUrl = cleanUrl.replace(/^https?:\/\//, '')
+    
+    // Remove www if present for domain matching
+    let domain = cleanUrl.replace(/^www\./, '').split('/')[0]
     const domainKey = domain.split('.')[0].toLowerCase()
+
+    console.log(`Processing URL: ${url} -> Domain: ${domain} -> Key: ${domainKey}`)
 
     // Check if we have predefined brand colors
     if (BRAND_COLORS[domainKey]) {
+      console.log(`Found predefined colors for: ${domainKey}`)
       return NextResponse.json(BRAND_COLORS[domainKey])
     }
 
-    // Normalize URL
-    let normalizedUrl = url
+    // Normalize URL with https protocol
+    let normalizedUrl = `https://${cleanUrl}`
+    if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) {
+      normalizedUrl = cleanUrl.startsWith('http') ? cleanUrl : `https://${cleanUrl}`
+    }
+
+    // Ensure it has a protocol
     if (!normalizedUrl.startsWith('http')) {
       normalizedUrl = `https://${normalizedUrl}`
     }
