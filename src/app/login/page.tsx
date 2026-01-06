@@ -1,20 +1,30 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
 
-export default function SignIn() {
+function SignInContent() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
 
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { signInWithEmail, signInWithGoogle } = useAuth()
+
+  // Check if coming from signup
+  useEffect(() => {
+    const signupSuccess = searchParams.get('signup')
+    if (signupSuccess === 'success') {
+      setSuccess('Account created! Check your email for confirmation link, then sign in.')
+    }
+  }, [searchParams])
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -29,12 +39,11 @@ export default function SignIn() {
 
     try {
       await signInWithEmail(email, password)
-      router.push('/dashboard')
+      // Redirect to home page, which will show dashboard button in header
+      router.push('/')
     } catch (err: any) {
-      setError(
-        err?.message ??
-          'Failed to sign in. Please check your credentials.'
-      )
+      const errorMsg = err?.message ?? 'Failed to sign in. Please check your credentials.'
+      setError(errorMsg)
     } finally {
       setLoading(false)
     }
@@ -65,6 +74,12 @@ export default function SignIn() {
           <p className="text-gray-600 mb-6">
             Sign in to your Vizly account
           </p>
+
+          {success && (
+            <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4 text-sm">
+              ✅ {success}
+            </div>
+          )}
 
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
@@ -138,5 +153,13 @@ export default function SignIn() {
         </div>
       </Card>
     </div>
+  )
+}
+
+export default function SignIn() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-black flex items-center justify-center"><div className="text-white">Loading...</div></div>}>
+      <SignInContent />
+    </Suspense>
   )
 }

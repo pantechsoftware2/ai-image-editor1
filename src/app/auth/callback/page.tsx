@@ -16,7 +16,7 @@ export default function AuthCallback() {
         if (error) throw error
 
         if (data.session) {
-          router.push('/dashboard')
+          router.push('/')
         } else {
           router.push('/login')
         }

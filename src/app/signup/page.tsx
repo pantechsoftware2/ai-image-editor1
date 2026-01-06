@@ -33,7 +33,8 @@ export default function SignUp() {
       setLoading(true)
       setError(null)
       await signUpWithEmail(email, password)
-      router.push('/dashboard')
+      // After signup, redirect to login page with success message
+      router.push('/login?signup=success')
     } catch (err: any) {
       setError(err?.message ?? 'Signup failed')
     } finally {
