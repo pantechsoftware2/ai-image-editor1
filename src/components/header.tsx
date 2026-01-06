@@ -4,14 +4,26 @@ import { useAuth } from '@/lib/auth-context'
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useState } from 'react'
 
 export function Header() {
   const { user, loading, signOut } = useAuth()
   const router = useRouter()
+  const [signingOut, setSigningOut] = useState(false)
 
   const handleSignOut = async () => {
-    await signOut()
-    router.push('/')
+    try {
+      setSigningOut(true)
+      await signOut()
+      // Always redirect to home after sign out, even if it fails
+      router.push('/')
+    } catch (error) {
+      console.error('Sign out error caught:', error)
+      // Still redirect even if there's an error
+      router.push('/')
+    } finally {
+      setSigningOut(false)
+    }
   }
 
   return (
@@ -33,12 +45,13 @@ export function Header() {
                 </Button>
               </Link>
               <Button
-  size="sm"
-  onClick={handleSignOut}
-  className="bg-blue-600 text-white hover:bg-blue-700 transition-colors"
->
-  Sign Out
-</Button>
+                size="sm"
+                onClick={handleSignOut}
+                disabled={signingOut}
+                className="bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
+              >
+                {signingOut ? 'Signing out...' : 'Sign Out'}
+              </Button>
 
             </>
           ) : (

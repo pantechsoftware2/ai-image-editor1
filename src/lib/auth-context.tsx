@@ -64,14 +64,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     try {
+      // Check if there's an active session before signing out
+      const { data } = await supabase.auth.getSession()
+      
+      // If no session, just clear local state
+      if (!data.session) {
+        console.log('No active session, clearing local state')
+        setSession(null)
+        setUser(null)
+        return
+      }
+
       const { error } = await supabase.auth.signOut()
       if (error) {
         console.error('Sign out error:', error)
         throw error
       }
+      
+      console.log('Signed out successfully')
     } catch (error) {
       console.error('Sign out failed:', error)
-      throw error
+      // Still clear local state even if signOut fails
+      setSession(null)
+      setUser(null)
     }
   }, [supabase])
 
