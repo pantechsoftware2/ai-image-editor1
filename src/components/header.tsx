@@ -1,6 +1,5 @@
 'use client'
 
-import { useState } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
@@ -16,25 +15,28 @@ export function Header() {
   }
 
   return (
-    <header className="fixed w-full top-0 z-50 bg-gradient-to-b from-slate-900/80 via-slate-900/50 to-transparent backdrop-blur-sm border-b border-purple-500/10">
+    <header className="fixed w-full top-0 z-50 border-b border-white/10 bg-black/80 backdrop-blur-xl">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-2">
-          <div className="w-10 h-10 bg-gradient-to-br from-purple-400 to-purple-600 rounded-lg flex items-center justify-center">
+        <Link href="/" className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-gradient-to-br from-purple-400 to-pink-600 rounded-lg flex items-center justify-center">
             <span className="text-white font-bold text-lg">V</span>
           </div>
           <span className="text-white font-bold text-xl">Vizly</span>
         </Link>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           {!loading && user ? (
             <>
               <Link href="/dashboard">
-                <Button className="bg-purple-600 hover:bg-purple-700">Dashboard</Button>
+                <Button size="sm" className="bg-white hover:bg-white/90 text-black font-semibold">
+                  Dashboard
+                </Button>
               </Link>
               <Button
+                size="sm"
                 variant="outline"
                 onClick={handleSignOut}
-                className="border-purple-500/30 text-white hover:bg-slate-800"
+                className="border-white/20 text-white hover:bg-white/5"
               >
                 Sign Out
               </Button>
@@ -42,12 +44,14 @@ export function Header() {
           ) : (
             <>
               <Link href="/login">
-                <Button variant="ghost" className="text-white hover:bg-slate-800">
+                <Button size="sm" variant="ghost" className="text-white hover:bg-white/10">
                   Sign In
                 </Button>
               </Link>
               <Link href="/signup">
-                <Button className="bg-purple-600 hover:bg-purple-700">Sign Up</Button>
+                <Button size="sm" className="bg-white hover:bg-white/90 text-black font-semibold">
+                  Sign Up
+                </Button>
               </Link>
             </>
           )}
