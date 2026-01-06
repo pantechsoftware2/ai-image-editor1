@@ -1,0 +1,149 @@
+🔐 GOOGLE CLOUD AUTHENTICATION FIX - QUICK START
+================================================
+
+PROBLEM: 
+  Image generation fails with "Unable to authenticate your request"
+
+CAUSE:
+  Google Cloud SDK not authenticated on your system
+
+SOLUTION (Choose One):
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OPTION 1: Automated Setup (Recommended - 5 minutes)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Open PowerShell (or Command Prompt)
+
+2. Run this command:
+   powershell -ExecutionPolicy Bypass -File "C:\Users\pante\Downloads\ai-image-editor\setup-gcloud.ps1"
+
+3. It will:
+   ✓ Check for Google Cloud SDK
+   ✓ Install it if needed (opens installer)
+   ✓ Authenticate with your Google account
+   ✓ Verify project settings
+   ✓ Show success message
+
+4. After it finishes:
+   - cd C:\Users\pante\Downloads\ai-image-editor
+   - npm run dev
+   - Test image generation
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OPTION 2: Manual Setup (If script doesn't work)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Step 1: Download & Install Google Cloud SDK
+   → https://cloud.google.com/sdk/docs/install
+   → Download "Google Cloud SDK Installer for Windows"
+   → Run the installer
+   → Restart PowerShell when done
+
+Step 2: Authenticate
+   Open PowerShell and run:
+   gcloud auth application-default login
+
+   ✓ Browser window opens
+   ✓ Sign in with your Google account
+   ✓ Click "Allow" when asked for permissions
+   ✓ Credentials saved automatically
+
+Step 3: Verify
+   Run this to confirm it worked:
+   gcloud auth application-default print-access-token
+   
+   ✓ Should show a long token (copy of random characters)
+   ✗ If error: go back to Step 2
+
+Step 4: Restart and Test
+   cd C:\Users\pante\Downloads\ai-image-editor
+   npm run dev
+   
+   ✓ Go to http://localhost:3000
+   ✓ Login
+   ✓ Go to Editor
+   ✓ Type "google.com" → Extract Brand
+   ✓ Type "coffee" → Generate Image
+   ✓ Wait 30-60 seconds, should see 4 images
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VERIFICATION CHECKLIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+After setup, verify everything:
+
+[ ] Google Cloud SDK installed
+    Run: gcloud --version
+    Should show: Google Cloud SDK [version]
+
+[ ] Authenticated 
+    Run: gcloud auth application-default print-access-token
+    Should show: Token string (long random characters)
+
+[ ] Project ID correct
+    Run: gcloud config get-value project
+    Should show: ai-image-editor-483505
+
+[ ] APIs enabled
+    Run: gcloud services enable aiplatform.googleapis.com
+    Should complete without errors
+
+[ ] .env.local has project ID
+    Should contain: GOOGLE_CLOUD_PROJECT_ID=ai-image-editor-483505
+
+[ ] npm run dev starts without errors
+    Should see: "Ready in" message
+
+[ ] Image generation works
+    Browser console shows:
+    - "🔐 Initializing Vertex AI..."
+    - "✅ Vertex AI initialized"
+    - "✨ Generated 4 images"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TROUBLESHOOTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Problem: "gcloud: The term is not recognized"
+→ Google Cloud SDK not installed
+→ Download from: https://cloud.google.com/sdk/docs/install
+
+Problem: "Unable to authenticate"
+→ Run: gcloud auth application-default login
+→ Make sure to click "Allow" in browser
+
+Problem: Still seeing errors in browser
+→ Open DevTools (F12)
+→ Go to Console tab
+→ Look for error messages
+→ Check if it says "GOOGLE_CLOUD_PROJECT_ID" is set
+
+Problem: "Quota exceeded"
+→ You've hit free tier limits
+→ Check: https://console.cloud.google.com/quotas
+→ May need to wait or upgrade project
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FILES PROVIDED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+setup-gcloud.ps1      → PowerShell setup script (RECOMMENDED)
+setup-gcloud.bat      → Batch file setup (alternative)
+AUTH_SETUP_FIX.txt    → Detailed setup instructions
+.env.local            → Already has your project ID
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+READY TO FIX?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Option 1 (Easiest):
+Open PowerShell and run:
+powershell -ExecutionPolicy Bypass -File setup-gcloud.ps1
+
+Then come back and test image generation!
+
+Your project ID is: ai-image-editor-483505
+Your region is: us-central1
+
+Good luck! 🚀
