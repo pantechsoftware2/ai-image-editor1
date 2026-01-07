@@ -4,6 +4,10 @@ import { useEffect, useRef, useState } from 'react'
 import { Canvas as FabricCanvas, Rect, Textbox } from 'fabric'
 import { ImageGrid } from './image-grid'
 import { useAuth } from '@/lib/auth-context'
+import { useToast } from '@/lib/toast-context'
+import { exportCanvasToImage, serializeCanvasState, deserializeCanvasState } from '@/lib/canvas-export'
+import { createClient } from '@/lib/supabase'
+import Link from 'next/link'
 
 interface CanvasTemplate {
   name: string
@@ -163,6 +167,7 @@ export function Canvas({ brandData }: { brandData?: any }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const fabricCanvasRef = useRef<InstanceType<typeof FabricCanvas> | null>(null)
+  const lastRequestTimeRef = useRef<number>(0) // Track last request to prevent rapid fire
   const [selectedTemplate, setSelectedTemplate] = useState<string>('image-text')
   const [canvasSize, setCanvasSize] = useState({ width: 1080, height: 1350 })
   const [generatingImages, setGeneratingImages] = useState(false)
@@ -172,7 +177,135 @@ export function Canvas({ brandData }: { brandData?: any }) {
   const [promptInput, setPromptInput] = useState('')
   const [useAIText, setUseAIText] = useState(false)
   const [generatingHeadline, setGeneratingHeadline] = useState(false)
+  const [selectedTextObject, setSelectedTextObject] = useState<any>(null)
+  const [textColor, setTextColor] = useState('#000000')
+  const [fontSize, setFontSize] = useState(32)
+  const [fontFamily, setFontFamily] = useState('Arial')
+  const [regeneratingText, setRegeneratingText] = useState(false)
+  const [savingProject, setSavingProject] = useState(false)
+  const [projectTitle, setProjectTitle] = useState('')
+  const [projectDescription, setProjectDescription] = useState('')
   const { user } = useAuth()
+  const { addToast } = useToast()
+
+  // Load remix project on mount if available
+  useEffect(() => {
+    const remixProjectId = localStorage.getItem('remix_project_id')
+    if (remixProjectId && fabricCanvasRef.current) {
+      loadProjectToEditor(remixProjectId)
+      localStorage.removeItem('remix_project_id')
+    }
+  }, [])
+
+  const loadProjectToEditor = async (projectId: string) => {
+    try {
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session) {
+        throw new Error('No active session. Please sign in again.')
+      }
+
+      const token = session.access_token
+      const response = await fetch(`/api/projects/${projectId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to load project')
+      }
+
+      // Load canvas state
+      if (data.project.canvas_json && fabricCanvasRef.current) {
+        await deserializeCanvasState(fabricCanvasRef.current, data.project.canvas_json)
+        setProjectTitle(data.project.title)
+        setProjectDescription(data.project.description || '')
+        addToast(`📂 Loaded project: ${data.project.title}`, 'success')
+      }
+    } catch (error: any) {
+      console.error('Error loading project:', error)
+      addToast(`Failed to load project: ${error.message}`, 'error')
+    }
+  }
+
+  const saveProject = async () => {
+    if (!user || !fabricCanvasRef.current) {
+      addToast('Please sign in to save projects', 'error')
+      return
+    }
+
+    if (!projectTitle.trim()) {
+      addToast('Please enter a project title', 'warning')
+      return
+    }
+
+    try {
+      setSavingProject(true)
+      const canvasJson = serializeCanvasState(fabricCanvasRef.current)
+      
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session) {
+        throw new Error('No active session. Please sign in again.')
+      }
+
+      const token = session.access_token
+
+      const response = await fetch('/api/projects', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          title: projectTitle,
+          description: projectDescription,
+          canvasJson,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        console.error('❌ Save project error response:', data)
+        throw new Error(data.error || 'Failed to save project')
+      }
+
+      addToast(`✅ Project saved: ${projectTitle}`, 'success')
+    } catch (error: any) {
+      console.error('❌ Error saving project:', error)
+      addToast(`Failed to save project: ${error.message}`, 'error')
+    } finally {
+      setSavingProject(false)
+    }
+  }
+
+  const downloadCanvas = async (format: 'png' | 'jpg' = 'png') => {
+    if (!fabricCanvasRef.current) {
+      addToast('Canvas not ready', 'error')
+      return
+    }
+
+    try {
+      const filename = projectTitle || 'my-design'
+      await exportCanvasToImage(fabricCanvasRef.current, {
+        format,
+        quality: format === 'jpg' ? 95 : 100,
+        scale: 2, // 2x resolution for high-quality export
+        filename,
+      })
+      addToast(`✅ Downloaded as ${format.toUpperCase()}`, 'success')
+    } catch (error: any) {
+      console.error('Error downloading canvas:', error)
+      addToast(`Download failed: ${error.message}`, 'error')
+    }
+  }
 
   // Initialize canvas
   useEffect(() => {
@@ -222,6 +355,31 @@ export function Canvas({ brandData }: { brandData?: any }) {
       resizeTimeout = setTimeout(handleResize, 100)
     }
 
+    // Track text selection for toolbar
+    fabricCanvas.on('selection:created', (e: any) => {
+      if (e.selected?.[0]?.text !== undefined) {
+        const textObj = e.selected[0]
+        setSelectedTextObject(textObj)
+        setTextColor(textObj.fill || '#000000')
+        setFontSize(textObj.fontSize || 32)
+        setFontFamily(textObj.fontFamily || 'Arial')
+      }
+    })
+
+    fabricCanvas.on('selection:updated', (e: any) => {
+      if (e.selected?.[0]?.text !== undefined) {
+        const textObj = e.selected[0]
+        setSelectedTextObject(textObj)
+        setTextColor(textObj.fill || '#000000')
+        setFontSize(textObj.fontSize || 32)
+        setFontFamily(textObj.fontFamily || 'Arial')
+      }
+    })
+
+    fabricCanvas.on('selection:cleared', () => {
+      setSelectedTextObject(null)
+    })
+
     window.addEventListener('resize', resizeListener)
     handleResize()
 
@@ -258,19 +416,64 @@ export function Canvas({ brandData }: { brandData?: any }) {
     fabricCanvasRef.current.renderAll()
   }
 
-  const downloadCanvas = () => {
-    if (!fabricCanvasRef.current) return
+  const updateTextColor = (color: string) => {
+    if (!selectedTextObject || !fabricCanvasRef.current) return
+    setTextColor(color)
+    selectedTextObject.set({ fill: color })
+    fabricCanvasRef.current.renderAll()
+  }
 
-    const dataURL = fabricCanvasRef.current.toDataURL({
-      format: 'png',
-      quality: 1,
-      multiplier: 2,
-    })
+  const updateFontSize = (size: number) => {
+    if (!selectedTextObject || !fabricCanvasRef.current) return
+    setFontSize(size)
+    selectedTextObject.set({ fontSize: size })
+    fabricCanvasRef.current.renderAll()
+  }
 
-    const link = document.createElement('a')
-    link.href = dataURL
-    link.download = `design-${Date.now()}.png`
-    link.click()
+  const updateFontFamily = (family: string) => {
+    if (!selectedTextObject || !fabricCanvasRef.current) return
+    setFontFamily(family)
+    selectedTextObject.set({ fontFamily: family })
+    fabricCanvasRef.current.renderAll()
+  }
+
+  const regenerateText = async () => {
+    if (!selectedTextObject) {
+      addToast('Please select a text element first', 'warning')
+      return
+    }
+
+    setRegeneratingText(true)
+    try {
+      const currentText = selectedTextObject.text
+      console.log('🔄 Regenerating text:', currentText)
+
+      const response = await fetch('/api/generateHeadline', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          originalText: currentText,
+          imagePrompt: imagePrompt || promptInput,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to regenerate text')
+      }
+
+      if (data.headline && fabricCanvasRef.current) {
+        selectedTextObject.set({ text: data.headline })
+        fabricCanvasRef.current.renderAll()
+        console.log('✅ Text regenerated:', data.headline)
+      }
+    } catch (error: any) {
+      console.error('❌ Regenerate error:', error)
+      addToast(`Regenerate error: ${error?.message || 'Failed to regenerate text'}`, 'error')
+    } finally {
+      setRegeneratingText(false)
+    }
   }
 
   const generateImages = async () => {
@@ -279,6 +482,23 @@ export function Canvas({ brandData }: { brandData?: any }) {
       alert('❌ Please enter a description (e.g., "a steaming cup of coffee")')
       return
     }
+
+    // Prevent rapid successive requests (minimum 30 seconds between requests)
+    const now = Date.now()
+    const timeSinceLastRequest = now - lastRequestTimeRef.current
+    const minDelayMs = 30000 // 30 seconds to respect server-side rate limiting
+
+    if (timeSinceLastRequest < minDelayMs) {
+      const waitMs = minDelayMs - timeSinceLastRequest
+      addToast(
+        `⏳ Please wait ${Math.ceil(waitMs / 1000)}s before generating (rate limit protection)`,
+        'info',
+        3000
+      )
+      return
+    }
+
+    lastRequestTimeRef.current = now
 
     setGeneratingImages(true)
     setImagePrompt(prompt)
@@ -302,11 +522,18 @@ export function Canvas({ brandData }: { brandData?: any }) {
         }),
       })
 
-      const data = await response.json()
+      let data: any = {}
+      try {
+        data = await response.json()
+      } catch (parseError) {
+        console.error('❌ Failed to parse response:', parseError)
+        data = { error: 'Failed to parse server response' }
+      }
 
       if (!response.ok) {
-        console.error('❌ API Error:', data)
-        throw new Error(data.error || `Failed to generate images (${response.status})`)
+        const errorMessage = data?.error || `Failed to generate images (HTTP ${response.status})`
+        console.error('❌ API Error:', { status: response.status, data })
+        throw new Error(errorMessage)
       }
 
       if (data.success && data.images && data.images.length > 0) {
@@ -321,9 +548,26 @@ export function Canvas({ brandData }: { brandData?: any }) {
     } catch (error: any) {
       console.error('🔴 Generation error:', error)
       const errorMessage = error?.message || 'Unknown error'
-      alert(
-        `❌ Error: ${errorMessage}\n\nMake sure your Google Cloud credentials are configured correctly.`
-      )
+      
+      // Format error message based on type
+      let displayMessage = `❌ Error: ${errorMessage}`
+      
+      if (errorMessage.includes('Quota exceeded') || errorMessage.includes('429')) {
+        displayMessage = 
+          `⚠️ Quota Exceeded - Image generation service rate limit hit.\n\n` +
+          `Solutions:\n` +
+          `1. ⏳ Wait 2-5 minutes and try again\n` +
+          `2. 📈 Request a quota increase on Google Cloud Console\n` +
+          `3. 💡 Avoid rapid consecutive requests`
+        addToast(displayMessage, 'warning', 5000)
+      } else if (errorMessage.includes('authentication') || errorMessage.includes('GOOGLE_CLOUD_PROJECT_ID') || errorMessage.includes('credentials')) {
+        displayMessage =
+          `❌ Auth Error - Google Cloud credentials not configured.\n\n` +
+          `Run: gcloud auth application-default login`
+        addToast(displayMessage, 'error', 5000)
+      } else {
+        addToast(displayMessage, 'error', 3000)
+      }
     } finally {
       setGeneratingImages(false)
     }
@@ -362,7 +606,7 @@ export function Canvas({ brandData }: { brandData?: any }) {
       img.src = imgUrl
     } catch (error) {
       console.error('❌ Error loading image:', error)
-      alert('Failed to load image')
+      addToast('Failed to load image', 'error')
     }
   }
 
@@ -511,12 +755,145 @@ export function Canvas({ brandData }: { brandData?: any }) {
                   >
                     + Add Text
                   </button>
-                  <button
-                    onClick={downloadCanvas}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition"
-                  >
-                    ⬇️ Download
-                  </button>
+
+                  {/* Text Formatting Toolbar */}
+                  {selectedTextObject && (
+                    <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 mt-4">
+                      <h3 className="text-sm font-semibold text-white mb-3">Text Formatting</h3>
+                      
+                      {/* Font Color */}
+                      <div className="mb-3">
+                        <label className="block text-xs text-gray-400 mb-2">Font Color</label>
+                        <div className="flex gap-2">
+                          <input
+                            type="color"
+                            value={textColor}
+                            onChange={(e) => updateTextColor(e.target.value)}
+                            className="w-12 h-10 rounded cursor-pointer"
+                          />
+                          <input
+                            type="text"
+                            value={textColor}
+                            onChange={(e) => updateTextColor(e.target.value)}
+                            className="flex-1 bg-gray-700 border border-gray-600 text-white px-2 py-2 rounded text-xs"
+                            placeholder="#000000"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Font Size */}
+                      <div className="mb-3">
+                        <label className="block text-xs text-gray-400 mb-2">
+                          Font Size: {fontSize}px
+                        </label>
+                        <input
+                          type="range"
+                          min="8"
+                          max="120"
+                          value={fontSize}
+                          onChange={(e) => updateFontSize(Number(e.target.value))}
+                          className="w-full"
+                        />
+                      </div>
+
+                      {/* Font Family */}
+                      <div className="mb-3">
+                        <label className="block text-xs text-gray-400 mb-2">Font Family</label>
+                        <select
+                          value={fontFamily}
+                          onChange={(e) => updateFontFamily(e.target.value)}
+                          className="w-full bg-gray-700 border border-gray-600 text-white px-2 py-2 rounded text-xs"
+                        >
+                          <option>Arial</option>
+                          <option>Helvetica</option>
+                          <option>Times New Roman</option>
+                          <option>Georgia</option>
+                          <option>Courier New</option>
+                          <option>Verdana</option>
+                          <option>Impact</option>
+                        </select>
+                      </div>
+
+                      {/* Regenerate Text */}
+                      <button
+                        onClick={regenerateText}
+                        disabled={regeneratingText}
+                        className="w-full bg-orange-600 hover:bg-orange-700 disabled:bg-gray-700 text-white font-semibold py-2 px-4 rounded-lg transition text-sm"
+                      >
+                        {regeneratingText ? (
+                          <>
+                            <span className="inline-block animate-spin mr-2">⌛</span>
+                            Regenerating...
+                          </>
+                        ) : (
+                          '✨ Regenerate Text'
+                        )}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Project Management Section */}
+                  <div className="space-y-3 mt-6">
+                    <h3 className="text-sm font-semibold text-white mb-2">Project Management</h3>
+                    
+                    {/* Project Title Input */}
+                    <input
+                      type="text"
+                      placeholder="Project title"
+                      value={projectTitle}
+                      onChange={(e) => setProjectTitle(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 text-white px-3 py-2 rounded-lg text-xs placeholder-gray-600 focus:outline-none focus:border-blue-500"
+                    />
+
+                    {/* Project Description Input */}
+                    <textarea
+                      placeholder="Project description (optional)"
+                      value={projectDescription}
+                      onChange={(e) => setProjectDescription(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 text-white px-3 py-2 rounded-lg text-xs placeholder-gray-600 focus:outline-none focus:border-blue-500 h-20 resize-none"
+                    />
+
+                    {/* Save Project Button */}
+                    <button
+                      onClick={saveProject}
+                      disabled={savingProject || !projectTitle.trim()}
+                      className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-700 text-white font-semibold py-2 px-4 rounded-lg transition"
+                    >
+                      {savingProject ? (
+                        <>
+                          <span className="inline-block animate-spin mr-2">⌛</span>
+                          Saving...
+                        </>
+                      ) : (
+                        '💾 Save Project'
+                      )}
+                    </button>
+
+                    {/* View My Projects Link */}
+                    <Link
+                      href="/projects"
+                      className="block text-center bg-gray-800 hover:bg-gray-700 text-white font-semibold py-2 px-4 rounded-lg transition text-sm"
+                    >
+                      📂 My Projects
+                    </Link>
+                  </div>
+
+                  {/* Export Section */}
+                  <div className="space-y-2 mt-6">
+                    <h3 className="text-sm font-semibold text-white mb-2">Export</h3>
+                    <button
+                      onClick={() => downloadCanvas('png')}
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition text-sm"
+                    >
+                      📥 Download as PNG
+                    </button>
+                    <button
+                      onClick={() => downloadCanvas('jpg')}
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition text-sm"
+                    >
+                      📥 Download as JPG
+                    </button>
+                  </div>
                 </div>
               </div>
 

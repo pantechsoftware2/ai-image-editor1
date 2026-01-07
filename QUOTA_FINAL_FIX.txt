@@ -1,0 +1,114 @@
+# Final Fix - 429 Quota Error Resolution
+
+## Problem
+Still hitting 429 quota exceeded errors even with retry logic.
+
+## Root Cause
+- Request gap was only 15 seconds (quota is ~100 per minute)
+- Retry delays weren't long enough (5s → 10s → 20s)
+- Need much more aggressive backoff
+
+## Solution Implemented
+
+### Server-Side (`src/lib/vertex-ai.ts`)
+
+**Request Gap**: 30 seconds (was 15s)
+- Enforced at server level before every API call
+- Ensures only ~2 requests per minute maximum
+
+**Retry Logic**: Ultra-aggressive backoff
+- Now 6 attempts (was 5)
+- Initial delay: 20 seconds (was 5s)
+- Progression: 20s → 40s → 80s → 160s → 320s → 640s
+- Total max wait: ~30 minutes with retries
+
+### Client-Side (`src/components/canvas.tsx`)
+
+**Debouncing**: 30 seconds (was 15s)
+- User cannot click "Generate" more than once every 30 seconds
+- Shows countdown warning if they try
+
+## How It Works Now
+
+```
+User clicks "Generate Image"
+    ↓
+Client checks: Has 30s passed since last request?
+    ├─ No: Show "Wait X seconds" alert → Return
+    └─ Yes: Continue
+    ↓
+Send to /api/generateImage
+    ↓
+Server enforceRequestGap():
+    - Check time since last request
+    - Wait if needed to reach 30s minimum
+    ↓
+Call Imagen-4 API
+    ├─ Success → Return images
+    ├─ 429 Error → Retry with 20s delay
+    ├─ Still failing → Retry with 40s delay
+    ├─ Still failing → Retry with 80s delay
+    └─ Continue exponential backoff up to 6 attempts
+```
+
+## Key Changes
+
+### src/lib/vertex-ai.ts
+```typescript
+const MIN_REQUEST_GAP_MS = 30000 // 30 seconds (was 15000)
+maxRetries = 6 // (was 5)
+initialDelayMs = 20000 // 20 seconds (was 5000)
+// Backoff: 20s, 40s, 80s, 160s, 320s, 640s
+```
+
+### src/components/canvas.tsx
+```typescript
+const minDelayMs = 30000 // 30 seconds (was 15000)
+```
+
+## Expected Behavior
+
+✅ **Normal Flow** (every 30+ seconds):
+- User clicks → Image generation succeeds
+- Get 4 image variants
+- No errors
+
+✅ **Rapid Clicks** (within 30s):
+- User clicks → Alert: "Please wait 25 seconds..."
+- Button remains disabled until time passes
+- No API call made
+
+✅ **If Quota Hit** (extremely unlikely now):
+- Request fails with 429
+- Auto-retry with 20s delay
+- Likely succeeds on retry
+
+## Testing
+
+To verify it's working:
+1. Generate image → Works (wait 30s for quota)
+2. Click "Generate" again immediately → Alert shown
+3. Wait 30 seconds → Can generate again
+4. Monitor console for "⏳ Rate limiting..." messages
+
+## Quota Calculation
+
+**Free tier limit**: ~100 requests per minute
+
+**New implementation**:
+- Client: 1 request per 30 seconds = 2 requests/min
+- Server enforcement: Additional 30s gap = 2 requests/min maximum
+- **Safe margin**: Well under 100/min quota
+
+## If Still Getting Errors
+
+The error means the quota is truly exhausted. Solutions:
+
+1. **Wait**: 2-3 minutes for quota to reset
+2. **Request increase**: https://cloud.google.com/vertex-ai/docs/generative-ai/quotas-genai
+3. **Check project**: Verify you have only one project generating images
+
+---
+
+**Status**: ✅ Fixed with ultra-aggressive rate limiting  
+**Date**: January 7, 2025

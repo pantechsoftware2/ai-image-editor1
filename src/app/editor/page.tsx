@@ -161,7 +161,7 @@ export default function EditorPage() {
               </Button>
             </form>
 
-            <div className="space-y-3 pt-6 border-t border-gray-200">
+            {/* <div className="space-y-3 pt-6 border-t border-gray-200">
               <div className="bg-blue-50 rounded-lg p-4 text-sm">
                 <p className="font-semibold text-blue-900 mb-2">How it works:</p>
                 <ol className="space-y-1 text-blue-800 text-xs">
@@ -171,7 +171,7 @@ export default function EditorPage() {
                   <li>• Creates color palette</li>
                 </ol>
               </div>
-            </div>
+            </div> */}
 
             {/* Quick examples */}
             <div className="mt-6 pt-6 border-t border-gray-200">
@@ -179,7 +179,7 @@ export default function EditorPage() {
                 Quick Examples
               </p>
               <div className="grid grid-cols-3 gap-2">
-                {['apple.com', 'google.com', 'microsoft.com'].map((domain) => (
+                {['https://apple.com', 'https://google.com', 'https://microsoft.com'].map((domain) => (
                   <button
                     key={domain}
                     onClick={() => setUrl(domain)}

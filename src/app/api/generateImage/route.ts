@@ -118,15 +118,42 @@ export async function POST(request: NextRequest): Promise<NextResponse<GenerateI
       })
     } catch (error: any) {
       console.error('🔴 Imagen-4 API error:', error)
-      return NextResponse.json(
-        {
+      
+      // Extract error message safely
+      let errorMessage = 'Unknown error'
+      if (error?.message) {
+        errorMessage = error.message
+      } else if (typeof error === 'string') {
+        errorMessage = error
+      }
+      
+      console.error('🔴 Extracted error message:', errorMessage)
+      
+      // Handle quota/rate limit errors specifically
+      if (
+        errorMessage.includes('Quota exceeded') ||
+        errorMessage.includes('429') ||
+        errorMessage.includes('Too many requests') ||
+        errorMessage.includes('RESOURCE_EXHAUSTED')
+      ) {
+        const quotaErrorResponse: GenerateImageResponse = {
           success: false,
           images: [],
           prompt: completePrompt,
-          error: `Image generation failed: ${error?.message || 'Unknown error'}. Make sure GOOGLE_CLOUD_PROJECT_ID is set.`,
-        },
-        { status: 500 }
-      )
+          error: `Quota exceeded: Please wait a moment and try again. The image generation service has rate limits.`,
+        }
+        console.log('📤 Returning quota error response:', quotaErrorResponse)
+        return NextResponse.json(quotaErrorResponse, { status: 429 })
+      }
+      
+      const errorResponse: GenerateImageResponse = {
+        success: false,
+        images: [],
+        prompt: completePrompt,
+        error: `Image generation failed: ${errorMessage}`,
+      }
+      console.log('📤 Returning error response:', errorResponse)
+      return NextResponse.json(errorResponse, { status: 500 })
     }
 
     if (base64Images.length === 0) {

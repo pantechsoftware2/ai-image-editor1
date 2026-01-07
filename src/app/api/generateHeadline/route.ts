@@ -1,7 +1,9 @@
 /**
  * API Route: /api/generateHeadline
  * Generates a short marketing headline using Gemini AI
- * Called when user selects an image to auto-add text to canvas
+ * Supports:
+ * 1. Initial generation: { subject: string }
+ * 2. Regeneration: { originalText: string, imagePrompt: string }
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -10,7 +12,9 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY || '')
 
 interface GenerateHeadlineRequest {
-  subject: string
+  subject?: string
+  originalText?: string
+  imagePrompt?: string
 }
 
 interface GenerateHeadlineResponse {
@@ -22,13 +26,17 @@ interface GenerateHeadlineResponse {
 export async function POST(request: NextRequest): Promise<NextResponse<GenerateHeadlineResponse>> {
   try {
     const body: GenerateHeadlineRequest = await request.json()
-    const { subject } = body
+    const { subject, originalText, imagePrompt } = body
 
-    if (!subject || !subject.trim()) {
+    // Determine if this is regeneration or initial generation
+    const isRegeneration = !!originalText
+    const context = subject || imagePrompt
+
+    if (!context || !context.trim()) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Subject is required',
+          error: isRegeneration ? 'Image prompt is required for regeneration' : 'Subject is required',
         },
         { status: 400 }
       )
@@ -39,19 +47,28 @@ export async function POST(request: NextRequest): Promise<NextResponse<GenerateH
       return NextResponse.json(
         {
           success: true,
-          headline: subject.charAt(0).toUpperCase() + subject.slice(1), // Fallback: capitalize subject
+          headline: context.charAt(0).toUpperCase() + context.slice(1),
         }
       )
     }
 
-    console.log('💭 Generating headline for subject:', subject)
+    console.log(isRegeneration ? '🔄 Regenerating headline...' : '💭 Generating headline...')
+    console.log('Context:', context)
 
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
 
-    const prompt = `Generate a single, short marketing headline (5 words max) for a design image about "${subject}". 
+    let prompt: string
+    if (isRegeneration) {
+      prompt = `I have an image about "${context}" with the current headline: "${originalText}"
+Please regenerate a DIFFERENT, fresh marketing headline (5 words max) that would work well with this image.
+Be creative, punchy, and compelling. The headline will be displayed as an overlay on the image.
+Return ONLY the new headline text, nothing else. No quotation marks, no explanation.`
+    } else {
+      prompt = `Generate a single, short marketing headline (5 words max) for a design image about "${context}". 
 Be creative, punchy, and compelling. 
 The headline will be displayed as an overlay on the generated image.
 Return ONLY the headline text, nothing else. No quotation marks, no explanation.`
+    }
 
     const result = await model.generateContent(prompt)
     const responseText = result.response.text().trim()

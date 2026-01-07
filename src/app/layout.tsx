@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth-context";
+import { ToastProvider } from "@/lib/toast-context";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -16,8 +17,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Vizly - AI Image Editor",
   description: "Create stunning designs with AI-powered image generation and editing",
+  viewport: "width=device-width, initial-scale=1, maximum-scale=5",
   icons: {
-    icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%239333ea' width='100' height='100'/><text x='50' y='65' font-size='70' font-weight='bold' fill='white' text-anchor='middle'>V</text></svg>",
+    icon: "/vizly.png",
   },
 };
 
@@ -32,7 +34,9 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-950`}
       >
         <AuthProvider>
-          {children}
+          <ToastProvider>
+            {children}
+          </ToastProvider>
         </AuthProvider>
       </body>
     </html>

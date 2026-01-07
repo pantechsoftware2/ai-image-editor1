@@ -37,6 +37,68 @@ export interface ImageGenerationOptions {
   outputFormat?: string
 }
 
+// Track last request time to enforce minimum gap between requests
+let lastGenerateImageTime = 0
+const MIN_REQUEST_GAP_MS = 30000 // 30 seconds between requests to avoid quota
+
+/**
+ * Enforces minimum gap between image generation requests
+ * This prevents rapid-fire requests that trigger quota limits
+ */
+async function enforceRequestGap(): Promise<void> {
+  const now = Date.now()
+  const timeSinceLastRequest = now - lastGenerateImageTime
+  
+  if (timeSinceLastRequest < MIN_REQUEST_GAP_MS) {
+    const delayNeeded = MIN_REQUEST_GAP_MS - timeSinceLastRequest
+    console.log(
+      `⏳ Server rate limiting: Waiting ${delayNeeded}ms before request (prevent quota)...`
+    )
+    await new Promise((resolve) => setTimeout(resolve, delayNeeded))
+  }
+  
+  lastGenerateImageTime = Date.now()
+}
+
+/**
+ * Retry logic with exponential backoff
+ * Used for handling rate limiting (429) and temporary errors
+ */
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 6,
+  initialDelayMs: number = 20000
+): Promise<T> {
+  let lastError: Error | null = null
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      // Enforce gap between requests on server to prevent quota hitting
+      await enforceRequestGap()
+      return await fn()
+    } catch (error: any) {
+      lastError = error
+      const status = error?.status || error?.code
+
+      // Only retry on rate limit (429) or temporary server errors (500, 503)
+      if (status !== 429 && status !== 500 && status !== 503) {
+        throw error
+      }
+
+      if (attempt < maxRetries - 1) {
+        // Very aggressive exponential backoff: 20s, 40s, 80s, 160s, 320s, 640s
+        const delayMs = initialDelayMs * Math.pow(2, attempt)
+        console.log(
+          `⏳ Rate limited (${status}). Retrying in ${delayMs / 1000}s... (Attempt ${attempt + 1}/${maxRetries})`
+        )
+        await new Promise((resolve) => setTimeout(resolve, delayMs))
+      }
+    }
+  }
+
+  throw lastError || new Error('Max retries exceeded')
+}
+
 /**
  * Generate images using Imagen-4
  * Returns array of base64-encoded images
@@ -90,8 +152,12 @@ export async function generateImages(options: ImageGenerationOptions): Promise<s
       ],
     }
 
-    console.log('🚀 Calling Imagen-4 API...')
-    const response = await generativeModel.generateContent(request)
+    console.log('🚀 Calling Imagen-4 API with ultra-aggressive rate limiting...')
+    const response = await retryWithBackoff(
+      () => generativeModel.generateContent(request),
+      6, // max 6 attempts (vs 5)
+      20000 // initial 20 second delay (vs 5s)
+    )
     console.log('📦 Response received:', response ? 'success' : 'no response')
 
     // Extract images from response
@@ -176,6 +242,15 @@ export async function generateImages(options: ImageGenerationOptions): Promise<s
       code: error?.code,
       status: error?.status,
     })
+
+    // Provide specific error message for quota issues
+    if (error?.status === 429 || error?.code === 429) {
+      throw new Error(
+        'Quota exceeded: Too many image generation requests. Please wait a moment and try again. ' +
+        'If this persists, you may need to request a quota increase in Google Cloud Console.'
+      )
+    }
+
     throw new Error(`Image generation failed: ${error?.message || 'Unknown error'}`)
   }
 }

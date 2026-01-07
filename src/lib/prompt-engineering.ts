@@ -6,6 +6,14 @@
 
 export type TemplateType = 'full-image' | 'image-text' | 'two-column' | 'centered'
 
+export interface PromptEngineerOutput {
+  imagen_prompt: string
+  headline_suggestion: string
+  subheadline_suggestion: string
+  brand_vibe: string
+  style_applied: string
+}
+
 interface StyleChip {
   name: string
   prompt: string
@@ -252,3 +260,96 @@ export function buildCompletPrompt(options: {
 
   return prompt
 }
+
+/**
+ * Build a complete structured prompt output for Imagen-4
+ * Returns JSON with prompt, headlines, and metadata
+ */
+export function buildStructuredPrompt(options: {
+  subject: string
+  template: TemplateType
+  brandVibe?: string
+  brandColors?: { primary?: string; secondary?: string; accent?: string }
+  style?: StyleChip
+}): PromptEngineerOutput {
+  let prompt = options.subject
+
+  // Add style context
+  if (options.style) {
+    prompt += `, ${options.style.prompt}`
+  } else {
+    prompt += ', photorealistic, high quality'
+  }
+
+  // Add template-specific requirements and negative space for text
+  const negativeSpace = TEMPLATE_NEGATIVE_SPACE[options.template]
+  prompt += `, ${negativeSpace}`
+
+  // Add brand vibe if available
+  if (options.brandVibe) {
+    prompt += `, matching brand vibe: ${options.brandVibe}`
+  }
+
+  // Add colors if available
+  const colors = []
+  if (options.brandColors?.primary) {
+    colors.push(hexToColorName(options.brandColors.primary) || 'primary')
+  }
+  if (options.brandColors?.secondary) {
+    colors.push(hexToColorName(options.brandColors.secondary) || 'secondary')
+  }
+  if (options.brandColors?.accent) {
+    colors.push(hexToColorName(options.brandColors.accent) || 'accent')
+  }
+
+  if (colors.length > 0) {
+    prompt += `, color palette: ${colors.join(', ')}`
+  }
+
+  // Add final quality notes
+  prompt += ', 8K resolution, ultra high quality, professional grade'
+
+  // Generate headline and subheadline suggestions
+  const headline = generateHeadlineFromSubject(options.subject)
+  const subheadline = generateSubheadlineFromVibe(options.brandVibe || options.style?.name || 'Professional')
+
+  return {
+    imagen_prompt: prompt,
+    headline_suggestion: headline,
+    subheadline_suggestion: subheadline,
+    brand_vibe: options.brandVibe || options.style?.name || 'Professional',
+    style_applied: options.style?.name || 'Default'
+  }
+}
+
+/**
+ * Generate headline from subject
+ */
+function generateHeadlineFromSubject(subject: string): string {
+  // Extract key words and create punchy headline
+  const keywords = subject.split(' ').filter(w => w.length > 3)
+  if (keywords.length === 0) return subject.toUpperCase()
+  
+  // Capitalize and limit to 5 words
+  const headline = keywords.slice(0, 5).join(' ').toUpperCase()
+  return headline.substring(0, 50)
+}
+
+/**
+ * Generate subheadline from brand vibe
+ */
+function generateSubheadlineFromVibe(vibe: string): string {
+  const subheadlines: Record<string, string> = {
+    'Cinematic': 'Bold visuals, unforgettable moments',
+    'Photorealistic': 'Authentic, professional quality',
+    'Minimalist': 'Simple. Clean. Elegant.',
+    'Vibrant': 'Dynamic energy, vivid impact',
+    'Moody': 'Atmospheric, sophisticated depth',
+    'Nature': 'Organic, authentic, natural beauty',
+    'Tech': 'Future-forward, innovative design',
+    'Luxury': 'Premium craftsmanship, elevated elegance',
+    'Professional': 'Polished, reliable, trustworthy'
+  }
+  return subheadlines[vibe] || 'Designed with excellence'
+}
+
