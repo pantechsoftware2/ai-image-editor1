@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/card'
 import { Header } from '@/components/header'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { Suspense } from 'react'
 import { getTierRequirements } from '@/lib/prompt-engineering'
 
 interface BrandData {
@@ -25,6 +26,14 @@ interface BrandData {
 }
 
 export default function EditorPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-black text-white flex items-center justify-center">Loading...</div>}>
+      <EditorPageContent />
+    </Suspense>
+  );
+}
+
+function EditorPageContent() {
   const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
@@ -37,7 +46,6 @@ export default function EditorPage() {
   const { user, loading: authLoading } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
-  
   const prompt = searchParams.get('prompt')
 
   useEffect(() => {
