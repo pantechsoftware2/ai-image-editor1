@@ -2,9 +2,12 @@
  * Gemini-Powered Prompt Engineering System (The Brain)
  * Converts simple user input into detailed Imagen-4 prompts
  * Considers template selection and reserves negative space for text
+ * Includes Tier detection system for dynamic request complexity
  */
 
 export type TemplateType = 'full-image' | 'image-text' | 'two-column' | 'centered'
+
+export type TierLevel = 1 | 2 | 3
 
 export interface PromptEngineerOutput {
   imagen_prompt: string
@@ -12,6 +15,13 @@ export interface PromptEngineerOutput {
   subheadline_suggestion: string
   brand_vibe: string
   style_applied: string
+  tier: TierLevel
+  requirements: {
+    image: boolean
+    headline: boolean
+    subtitle: boolean
+    colors: boolean
+  }
 }
 
 interface StyleChip {
@@ -318,7 +328,14 @@ export function buildStructuredPrompt(options: {
     headline_suggestion: headline,
     subheadline_suggestion: subheadline,
     brand_vibe: options.brandVibe || options.style?.name || 'Professional',
-    style_applied: options.style?.name || 'Default'
+    style_applied: options.style?.name || 'Default',
+    tier: 1,
+    requirements: {
+      image: true,
+      headline: false,
+      subtitle: false,
+      colors: false,
+    }
   }
 }
 
@@ -352,4 +369,149 @@ function generateSubheadlineFromVibe(vibe: string): string {
   }
   return subheadlines[vibe] || 'Designed with excellence'
 }
+
+/**
+ * Tier Detection System - "The Brain" analyzes request complexity
+ * 
+ * Tier 1 (Simple): Just an image
+ * - Keywords: product, object, simple, minimal
+ * - Requirements: Image only
+ * 
+ * Tier 2 (Standard): Image + text overlay
+ * - Keywords: launch, announce, campaign, banner
+ * - Requirements: Image + Headline
+ * 
+ * Tier 3 (Story): Complete scene with headline, subtitle, and composed shot
+ * - Keywords: luxury, premium, exclusive, story, collection, presentation
+ * - Requirements: Photorealistic image + Headline + Subtitle + Composition
+ */
+export function detectTier(userPrompt: string): TierLevel {
+  const prompt = userPrompt.toLowerCase()
+  
+  // Keywords that indicate Tier 3 (Story/Presentation)
+  const tier3Keywords = [
+    'luxury', 'premium', 'exclusive', 'story', 'collection',
+    'presentation', 'launch', 'premiere', 'unveil', 'reveal',
+    'showcase', 'spectacular', 'gold', 'jewel', 'diamond',
+    'elegant', 'sophisticated', 'high-end', 'upscale',
+    'watch', 'jewelry', 'fragrance', 'couture', 'designer',
+    'flagship', 'limited edition', 'artisan', 'heritage'
+  ]
+  
+  // Keywords that indicate Tier 2 (Standard)
+  const tier2Keywords = [
+    'campaign', 'banner', 'announce', 'present', 'promote',
+    'social', 'post', 'design', 'graphic', 'poster',
+    'ad', 'advertisement', 'marketing', 'promotional'
+  ]
+  
+  // Check for Tier 3 keywords
+  if (tier3Keywords.some(keyword => prompt.includes(keyword))) {
+    return 3
+  }
+  
+  // Check for Tier 2 keywords
+  if (tier2Keywords.some(keyword => prompt.includes(keyword))) {
+    return 2
+  }
+  
+  // Default to Tier 1
+  return 1
+}
+
+/**
+ * Get requirements based on tier level
+ */
+export function getTierRequirements(tier: TierLevel): {
+  image: boolean
+  headline: boolean
+  subtitle: boolean
+  colors: boolean
+  template: TemplateType
+  loadingMessages: string[]
+} {
+  const baseMessages = [
+    'Analyzing Intent...',
+    'Processing Requirements...',
+  ]
+  
+  switch (tier) {
+    case 1:
+      return {
+        image: true,
+        headline: false,
+        subtitle: false,
+        colors: false,
+        template: 'full-image',
+        loadingMessages: [...baseMessages, 'Generating Image...'],
+      }
+    case 2:
+      return {
+        image: true,
+        headline: true,
+        subtitle: false,
+        colors: false,
+        template: 'image-text',
+        loadingMessages: [...baseMessages, 'Drafting Copy...', 'Composing Shot...'],
+      }
+    case 3:
+      return {
+        image: true,
+        headline: true,
+        subtitle: true,
+        colors: true,
+        template: 'image-text',
+        loadingMessages: [
+          'Analyzing Intent...',
+          'Understanding Brief...',
+          'Selecting Style...',
+          'Drafting Headline...',
+          'Composing Shot...',
+          'Rendering Premium Quality...',
+        ],
+      }
+    default:
+      return {
+        image: true,
+        headline: false,
+        subtitle: false,
+        colors: false,
+        template: 'full-image',
+        loadingMessages: baseMessages,
+      }
+  }
+}
+
+/**
+ * Build structured output with tier detection
+ */
+export function buildEnhancedPrompt(userInput: string): PromptEngineerOutput {
+  const tier = detectTier(userInput)
+  const requirements = getTierRequirements(tier)
+  
+  const prompt = buildCompletPrompt({
+    subject: userInput,
+    template: requirements.template,
+    style: STYLE_CHIPS[Math.floor(Math.random() * STYLE_CHIPS.length)],
+  })
+  
+  const headline = tier >= 2 ? generateHeadlineFromSubject(userInput) : ''
+  const subheadline = tier === 3 ? generateSubheadlineFromVibe('Professional') : ''
+  
+  return {
+    imagen_prompt: prompt,
+    headline_suggestion: headline,
+    subheadline_suggestion: subheadline,
+    brand_vibe: 'Professional',
+    style_applied: 'Adaptive',
+    tier,
+    requirements: {
+      image: requirements.image,
+      headline: requirements.headline,
+      subtitle: requirements.subtitle,
+      colors: requirements.colors,
+    },
+  }
+}
+
 

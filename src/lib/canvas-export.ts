@@ -77,16 +77,23 @@ export function serializeCanvasState(canvas: any): string {
  */
 export async function deserializeCanvasState(
   canvas: any,
-  jsonData: string
+  jsonData: string | object
 ): Promise<void> {
   try {
-    const data = JSON.parse(jsonData)
+    let data: any
+    if (typeof jsonData === 'string') {
+      data = JSON.parse(jsonData)
+    } else if (typeof jsonData === 'object' && jsonData !== null) {
+      data = jsonData
+    } else {
+      throw new Error('Invalid canvas state: not a string or object')
+    }
     await canvas.loadFromJSON(data, () => {
       canvas.renderAll()
       console.log('🎨 Canvas state loaded')
     })
   } catch (error) {
-    console.error('❌ Failed to deserialize canvas:', error)
+    console.error('❌ Failed to deserialize canvas:', error, jsonData)
     throw new Error('Failed to load canvas state')
   }
 }

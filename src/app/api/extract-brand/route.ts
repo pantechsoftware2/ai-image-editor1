@@ -88,10 +88,20 @@ function extractBrandData(html: string, domain: string): BrandData {
   try {
     const $ = load(html)
 
-    // Extract logo from og:image
+    // Extract logo from multiple sources
     let logo = $('meta[property="og:image"]').attr('content')
     if (!logo) {
       logo = $('meta[name="twitter:image"]').attr('content')
+    }
+    if (!logo) {
+      logo = $('link[rel="icon"]').attr('href')
+    }
+    if (!logo) {
+      logo = $('link[rel="shortcut icon"]').attr('href')
+    }
+    // Make relative URLs absolute
+    if (logo && !logo.startsWith('http')) {
+      logo = logo.startsWith('//') ? `https:${logo}` : `https://${domain}${logo.startsWith('/') ? '' : '/'}${logo}`
     }
     if (!logo) {
       logo = `https://${domain}/favicon.ico`
@@ -112,21 +122,44 @@ function extractBrandData(html: string, domain: string): BrandData {
       }
     })
 
-    // Extract primary colors from CSS
-    let primaryColor = '#000000'
-    let secondaryColor = '#FFFFFF'
-    let accentColor = '#3B82F6'
-
+    // Extract primary colors from CSS and inline styles
+    const colors: string[] = []
+    
+    // Check style tags
     $('style').each((i, elem) => {
       const styleContent = $(elem).html() || ''
-      // Look for common color patterns
-      if (styleContent.includes('background-color') || styleContent.includes('background:')) {
-        const colorMatch = styleContent.match(/#[0-9A-F]{6}|#[0-9A-F]{3}|rgb\([^)]+\)/gi)
-        if (colorMatch && colorMatch.length > 0) {
-          primaryColor = colorMatch[0]
-        }
+      const colorMatches = styleContent.match(/#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{3}/g)
+      if (colorMatches) {
+        colors.push(...colorMatches)
       }
     })
+
+    // Check inline styles
+    $('[style]').each((i, elem) => {
+      const style = $(elem).attr('style') || ''
+      const colorMatches = style.match(/#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{3}/g)
+      if (colorMatches) {
+        colors.push(...colorMatches)
+      }
+    })
+
+    // Filter out common colors and get most frequent
+    const colorCounts = new Map<string, number>()
+    colors.forEach(color => {
+      const normalized = color.toUpperCase()
+      // Skip pure black, white, and very light grays
+      if (normalized !== '#FFFFFF' && normalized !== '#000000' && normalized !== '#FFF' && normalized !== '#000') {
+        colorCounts.set(normalized, (colorCounts.get(normalized) || 0) + 1)
+      }
+    })
+
+    const sortedColors = Array.from(colorCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([color]) => color)
+
+    let primaryColor = sortedColors[0] || '#000000'
+    let secondaryColor = '#FFFFFF'
+    let accentColor = sortedColors[1] || '#3B82F6'
 
     const fontArray = Array.from(fonts).slice(0, 3)
     if (fontArray.length === 0) {

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth-context";
@@ -20,10 +20,15 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+};
+
 export const metadata: Metadata = {
   title: "Vizly - AI Image Editor",
   description: "Create stunning designs with AI-powered image generation and editing",
-  viewport: "width=device-width, initial-scale=1, maximum-scale=5",
   icons: {
     icon: "/vizly1.jpeg",
   },

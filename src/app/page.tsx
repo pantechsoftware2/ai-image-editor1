@@ -41,7 +41,7 @@ export default function Home() {
           </div>
 
           {/* Magic Input Component */}
-          <div className="mb-16 sm:mb-20 md:mb-24">
+          <div className="mb-16 sm:mb-20 md:mb-24 max-w-3xl mx-auto w-full">
             <MagicInput />
           </div>
 

@@ -69,19 +69,19 @@ export function ImageGrid({ images, prompt, onSelect, onClose }: ImageGridProps)
   }
 
   return (
-    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-2 sm:p-4">
       <Card className="w-full max-w-6xl bg-black border border-gray-800 shadow-2xl">
-        <div className="p-8">
+        <div className="p-2 sm:p-4 md:p-8">
           {/* Header */}
-          <div className="mb-8">
-            <div className="flex items-start justify-between mb-4">
+          <div className="mb-4 sm:mb-8">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-2">
               <div>
-                <h2 className="text-3xl font-bold text-white mb-2">✨ Image Variants</h2>
-                <p className="text-gray-400 text-sm">Select an image to add to your canvas</p>
+                <h2 className="text-2xl sm:text-3xl font-bold text-white mb-2">✨ Image Variants</h2>
+                <p className="text-gray-400 text-xs sm:text-sm">Select an image to add to your canvas</p>
               </div>
               <button
                 onClick={onClose}
-                className="text-gray-400 hover:text-white transition-colors text-2xl"
+                className="text-gray-400 hover:text-white transition-colors text-xl sm:text-2xl"
               >
                 ✕
               </button>
@@ -90,19 +90,19 @@ export function ImageGrid({ images, prompt, onSelect, onClose }: ImageGridProps)
           </div>
 
           {/* Main View + Sidebar */}
-          <div className="grid grid-cols-3 gap-8 mb-8">
+          <div className="flex flex-col lg:grid lg:grid-cols-3 gap-4 md:gap-8 mb-6 md:mb-8">
             {/* Large Preview */}
-            <div className="col-span-2">
+            <div className="w-full lg:col-span-2 mb-4 lg:mb-0">
               {selectedImage ? (
                 <div className="space-y-4">
-                  <div className="relative bg-gray-900 rounded-lg overflow-hidden aspect-[1080/1350]">
+                  <div className="relative bg-gray-900 rounded-lg overflow-hidden aspect-[4/5] max-h-[60vh]">
                     <img
                       src={selectedImage.base64 || selectedImage.url}
                       alt="Selected preview"
                       className="w-full h-full object-cover"
                     />
                   </div>
-                  <div className="flex gap-3">
+                  <div className="flex flex-col sm:flex-row gap-3">
                     <Button
                       onClick={() => handleSelect(selectedImage)}
                       className="flex-1 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold py-3 rounded-lg transition-all"
@@ -126,16 +126,16 @@ export function ImageGrid({ images, prompt, onSelect, onClose }: ImageGridProps)
                   </div>
                 </div>
               ) : (
-                <div className="bg-gray-900 rounded-lg aspect-[1080/1350] flex items-center justify-center text-gray-400">
+                <div className="bg-gray-900 rounded-lg aspect-[4/5] flex items-center justify-center text-gray-400 min-h-[200px]">
                   No image selected
                 </div>
               )}
             </div>
 
             {/* Grid of Thumbnails */}
-            <div className="col-span-1">
-              <h3 className="text-sm font-semibold text-white mb-4">Variants</h3>
-              <div className="grid grid-cols-2 gap-3">
+            <div className="w-full lg:col-span-1">
+              <h3 className="text-xs sm:text-sm font-semibold text-white mb-2 sm:mb-4">Variants</h3>
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-2 lg:grid-cols-2 gap-2 sm:gap-3">
                 {images.map((image) => (
                   <button
                     key={image.id}
@@ -161,7 +161,7 @@ export function ImageGrid({ images, prompt, onSelect, onClose }: ImageGridProps)
               </div>
 
               {/* Info */}
-              <div className="mt-6 pt-6 border-t border-gray-800">
+              <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-gray-800">
                 <p className="text-xs text-gray-500 mb-2">
                   Generated: {new Date(selectedImage?.createdAt || Date.now()).toLocaleTimeString()}
                 </p>
@@ -173,7 +173,7 @@ export function ImageGrid({ images, prompt, onSelect, onClose }: ImageGridProps)
           </div>
 
           {/* Footer */}
-          <div className="pt-6 border-t border-gray-800 flex justify-between items-center">
+          <div className="pt-4 sm:pt-6 border-t border-gray-800 flex flex-col sm:flex-row justify-between items-center gap-2">
             <p className="text-xs text-gray-500">
               {images.length} image{images.length !== 1 ? 's' : ''} generated
             </p>

@@ -2,11 +2,12 @@
  * API Route: /api/generateImage
  * Generates 1 image variant using Imagen-4 and stores in Supabase Storage
  * CRITICAL: 15-second cooldown between requests to prevent quota exhaustion
+ * Implements Tier-based generation system for optimal performance
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { generateImages } from '@/lib/vertex-ai'
-import { buildCompletPrompt, buildPromptWithTextRendering, TemplateType } from '@/lib/prompt-engineering'
+import { buildCompletPrompt, buildPromptWithTextRendering, TemplateType, detectTier, getTierRequirements, buildEnhancedPrompt } from '@/lib/prompt-engineering'
 import { createClient } from '@supabase/supabase-js'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -79,7 +80,7 @@ function getSupabaseClient() {
 
 interface GenerateImageRequest {
   prompt: string
-  template: TemplateType
+  template?: TemplateType
   primaryColor?: string
   secondaryColor?: string
   accentColor?: string
@@ -101,6 +102,9 @@ interface GenerateImageResponse {
   images: GeneratedImage[]
   prompt: string
   error?: string
+  tier?: number
+  headline?: string
+  subtitle?: string
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse<GenerateImageResponse>> {
@@ -131,7 +135,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<GenerateI
     try {
       const body: GenerateImageRequest = await request.json()
 
-      const { prompt: userPrompt, template, primaryColor, secondaryColor, accentColor, userId, useAIText, aiTextContent } = body
+      const { prompt: userPrompt, template: providedTemplate, primaryColor, secondaryColor, accentColor, userId, useAIText, aiTextContent } = body
 
       if (!userPrompt || !userPrompt.trim()) {
         return NextResponse.json(
@@ -145,75 +149,63 @@ export async function POST(request: NextRequest): Promise<NextResponse<GenerateI
         )
       }
 
-      if (!template) {
-      return NextResponse.json(
-        {
-          success: false,
-          images: [],
-          prompt: '',
-          error: 'Template is required',
-        },
-        { status: 400 }
-      )
-    }
-
-    console.log('🧠 Building prompt for Imagen-4...')
-    console.log('🎨 AI Text Effects enabled:', useAIText)
-
-    // Build the complete prompt with brand context
-    let completePrompt: string
-    
-    if (useAIText && aiTextContent) {
-      // Text baking mode: render text in the image
-      completePrompt = buildPromptWithTextRendering(
-        userPrompt.trim(),
-        aiTextContent.trim(),
-        true,
-        template
-      )
-      console.log('🎨 Using AI Text Rendering mode')
-    } else {
-      // Normal mode: just the image
-      completePrompt = buildCompletPrompt({
-        subject: userPrompt.trim(),
-        template,
-        primaryColor,
-        secondaryColor,
-        accentColor,
-      })
-    }
-
-    console.log('📝 Final Imagen prompt:', completePrompt)
-    console.log('🎨 Template:', template)
-
-    // Generate images using Imagen-4
-    console.log('\n' + '='.repeat(60))
-    console.log('🚀 REQUEST TO GENERATE IMAGES')
-    console.log('='.repeat(60))
-    console.log(`📝 Prompt length: ${completePrompt.length} chars`)
-    console.log(`🎨 Template: ${template}`)
-    console.log(`👤 User ID: ${userId || 'anonymous'}`)
-    console.log(`✨ AI Text Effects: ${useAIText}`)
-    console.log('='.repeat(60) + '\n')
-    
-    let base64Images: string[] = []
-
-    try {
-      base64Images = await generateImages({
-        prompt: completePrompt,
-        numberOfImages: 1,
-        sampleCount: 1,
-      })
-    } catch (error: any) {
-      console.error('🔴 Imagen-4 API error:', error)
+      // 🧠 TIER DETECTION - The Brain analyzes the request
+      console.log('\n' + '='.repeat(60))
+      console.log('🧠 THE BRAIN: Analyzing Intent...')
+      console.log('='.repeat(60))
       
-      // Extract error message safely
-      let errorMessage = 'Unknown error'
-      if (error?.message) {
-        errorMessage = error.message
-      } else if (typeof error === 'string') {
-        errorMessage = error
-      }
+      const tier = detectTier(userPrompt)
+      const tierRequirements = getTierRequirements(tier)
+      const template = providedTemplate || tierRequirements.template
+      
+      console.log(`📊 Request Tier: ${tier}`)
+      console.log(`📋 Requirements:`)
+      console.log(`   - Image: ${tierRequirements.image}`)
+      console.log(`   - Headline: ${tierRequirements.headline}`)
+      console.log(`   - Subtitle: ${tierRequirements.subtitle}`)
+      console.log(`   - Colors: ${tierRequirements.colors}`)
+      console.log(`🎨 Template: ${template}`)
+      console.log('='.repeat(60) + '\n')
+
+      // Build enhanced prompt with tier consideration
+      const enhancedOutput = buildEnhancedPrompt(userPrompt.trim())
+      
+      const completePrompt = enhancedOutput.imagen_prompt
+      const headline = enhancedOutput.headline_suggestion
+      const subtitle = enhancedOutput.subheadline_suggestion
+
+      console.log('📝 Final Imagen prompt:', completePrompt)
+      console.log('📄 Headline:', headline || '(none)')
+      console.log('📄 Subtitle:', subtitle || '(none)')
+      console.log('🎨 Template:', template)
+
+      // Generate images using Imagen-4
+      console.log('\n' + '='.repeat(60))
+      console.log('🚀 REQUEST TO GENERATE IMAGES')
+      console.log('='.repeat(60))
+      console.log(`📝 Prompt length: ${completePrompt.length} chars`)
+      console.log(`🎨 Template: ${template}`)
+      console.log(`👤 User ID: ${userId || 'anonymous'}`)
+      console.log('='.repeat(60) + '\n')
+      
+      let base64Images: string[] = []
+
+      try {
+        base64Images = await generateImages({
+          prompt: completePrompt,
+          numberOfImages: 1,
+          sampleCount: 1,
+        })
+      } catch (error: any) {
+        console.error('🔴 Imagen-4 API error:', error)
+        
+        // Extract error message safely
+        let errorMessage = 'Unknown error'
+        if (error?.message) {
+          errorMessage = error.message
+        } else if (typeof error === 'string') {
+          errorMessage = error
+        }
       
       console.error('🔴 Extracted error message:', errorMessage)
       
@@ -340,6 +332,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<GenerateI
       success: true,
       images: generatedImages,
       prompt: completePrompt,
+      tier: tier,
+      headline: headline || undefined,
+      subtitle: subtitle || undefined,
     })
   } catch (error: any) {
     console.error('❌ Error in /api/generateImage:', error)

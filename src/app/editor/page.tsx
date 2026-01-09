@@ -1,15 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Canvas } from '@/components/canvas'
 import { BrandConfirmationModal } from '@/components/brand-confirmation-modal'
+import { GenerationSpinner } from '@/components/generation-spinner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
 import { Header } from '@/components/header'
 import { useAuth } from '@/lib/auth-context'
-import { useRouter } from 'next/navigation'
-import { useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { getTierRequirements } from '@/lib/prompt-engineering'
 
 interface BrandData {
   primaryColor: string
@@ -26,17 +27,126 @@ interface BrandData {
 export default function EditorPage() {
   const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(false)
+  const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [brandData, setBrandData] = useState<BrandData | null>(null)
   const [showModal, setShowModal] = useState(false)
+  const [spinnerMessages, setSpinnerMessages] = useState<string[]>([])
+  const [lastGenerationTime, setLastGenerationTime] = useState<number>(0)
+  const [hasAttemptedAutoGen, setHasAttemptedAutoGen] = useState(false)
   const { user, loading: authLoading } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  
+  const prompt = searchParams.get('prompt')
 
   useEffect(() => {
     if (!authLoading && !user) {
       router.push('/login')
     }
   }, [user, authLoading, router])
+
+  // Auto-generate on mount if prompt exists - only runs ONCE
+  useEffect(() => {
+    if (prompt && !brandData && !isGenerating && !hasAttemptedAutoGen && user) {
+      setHasAttemptedAutoGen(true)
+      handleAutoGenerate(prompt)
+    }
+  }, [prompt])
+
+  const handleAutoGenerate = async (userPrompt: string) => {
+    if (!userPrompt.trim()) return
+
+    // Check if enough time has passed since last attempt (20s rate limit + 2s buffer)
+    const now = Date.now()
+    const timeSinceLastGeneration = now - lastGenerationTime
+    if (lastGenerationTime > 0 && timeSinceLastGeneration < 22000) {
+      const waitTime = Math.ceil((22000 - timeSinceLastGeneration) / 1000)
+      setError(`Please wait ${waitTime}s before generating another image (rate limit protection)`)
+      setIsGenerating(false)
+      return
+    }
+
+    setIsGenerating(true)
+    setError(null)
+    
+    // Get tier-based loading messages
+    const tier = detectTierSimple(userPrompt)
+    const requirements = getTierRequirements(tier)
+    setSpinnerMessages(requirements.loadingMessages)
+
+    try {
+      console.log('🚀 Auto-generating from prompt:', userPrompt)
+
+      const response = await fetch('/api/generateImage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: userPrompt.trim(),
+          template: 'image-text',
+          userId: user?.id,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        const errorMessage = errorData.error || 'Generation failed'
+        
+        // Handle 429 rate limit errors - record time and show message
+        if (response.status === 429) {
+          setLastGenerationTime(Date.now())
+          setError(errorMessage)
+          return
+        }
+        
+        throw new Error(errorMessage)
+      }
+
+      const data = await response.json()
+      console.log('✅ Generation complete:', data)
+      setLastGenerationTime(Date.now())
+      
+      // Store generated data in brandData (reusing structure)
+      setBrandData({
+        primaryColor: '#000000',
+        secondaryColor: '#FFFFFF',
+        accentColor: '#0066FF',
+        logo: data.images[0]?.url || null,
+        fonts: [],
+        palette: {
+          hex: ['#000000', '#FFFFFF', '#0066FF'],
+          name: 'Generated'
+        }
+      })
+    } catch (err: any) {
+      console.error('Generation error:', err)
+      setError(err.message || 'Failed to generate design. Please try again.')
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
+  // Simple tier detection (duplicate for UI)
+  const detectTierSimple = (userPrompt: string): 1 | 2 | 3 => {
+    const prompt = userPrompt.toLowerCase()
+    const tier3Keywords = [
+      'luxury', 'premium', 'exclusive', 'story', 'collection',
+      'presentation', 'launch', 'premiere', 'unveil', 'reveal',
+      'showcase', 'spectacular', 'gold', 'jewel', 'diamond',
+      'elegant', 'sophisticated', 'high-end', 'upscale',
+      'watch', 'jewelry', 'fragrance', 'couture', 'designer',
+      'flagship', 'limited edition', 'artisan', 'heritage'
+    ]
+    const tier2Keywords = [
+      'campaign', 'banner', 'announce', 'present', 'promote',
+      'social', 'post', 'design', 'graphic', 'poster',
+      'ad', 'advertisement', 'marketing', 'promotional'
+    ]
+    
+    if (tier3Keywords.some(keyword => prompt.includes(keyword))) return 3
+    if (tier2Keywords.some(keyword => prompt.includes(keyword))) return 2
+    return 1
+  }
 
   const extractBrand = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -97,6 +207,7 @@ export default function EditorPage() {
     return (
       <>
         <Header />
+        <GenerationSpinner isVisible={isGenerating} messages={spinnerMessages} />
         <Canvas brandData={brandData} />
       </>
     )
@@ -106,29 +217,30 @@ export default function EditorPage() {
   return (
     <>
       <Header />
-      <div className="min-h-screen bg-black flex items-center justify-center p-4 pt-20">
+      <GenerationSpinner isVisible={isGenerating} messages={spinnerMessages} />
+      <div className="min-h-screen bg-black flex items-center justify-center p-3 sm:p-4 lg:p-8 pt-16 sm:pt-20">
         <Card className="w-full max-w-md bg-white border-0 shadow-lg">
-          <div className="p-8">
-            <div className="mb-2">
+          <div className="p-5 sm:p-6 md:p-8">
+            <div className="mb-3 sm:mb-4">
               <span className="inline-block px-3 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full mb-4">
                 STEP 1: EXTRACT BRAND
               </span>
             </div>
 
-            <h1 className="text-3xl font-bold text-black mb-2">Brand DNA</h1>
-            <p className="text-gray-600 mb-6">
+            <h1 className="text-2xl sm:text-3xl font-bold text-black mb-2">Brand DNA</h1>
+            <p className="text-gray-600 text-sm sm:text-base mb-6">
               Enter a website URL to automatically extract brand colors, fonts, and logo
             </p>
 
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
+              <div className="bg-red-50 border border-red-200 text-red-700 px-3 sm:px-4 py-2 sm:py-3 rounded-lg mb-4 text-xs sm:text-sm">
                 {error}
               </div>
             )}
 
             <form onSubmit={extractBrand} className="space-y-4 mb-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
                   Website URL
                 </label>
                 <Input
@@ -136,7 +248,7 @@ export default function EditorPage() {
                   placeholder="apple.com or https://apple.com"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  className="bg-gray-50 border-gray-300 text-black placeholder-gray-400"
+                  className="bg-gray-50 border-gray-300 text-black placeholder-gray-400 text-sm"
                   disabled={loading}
                   required
                 />
@@ -147,7 +259,7 @@ export default function EditorPage() {
 
               <Button
                 type="submit"
-                className="w-full bg-black hover:bg-gray-900 text-white font-semibold py-2"
+                className="w-full bg-black hover:bg-gray-900 text-white font-semibold py-2.5 sm:py-3 text-sm sm:text-base"
                 disabled={loading}
               >
                 {loading ? (
@@ -174,18 +286,18 @@ export default function EditorPage() {
             </div> */}
 
             {/* Quick examples */}
-            <div className="mt-6 pt-6 border-t border-gray-200">
+            <div className="mt-6 sm:mt-8 pt-6 sm:pt-8 border-t border-gray-200">
               <p className="text-xs font-semibold text-gray-700 mb-3 uppercase">
                 Quick Examples
               </p>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {['https://apple.com', 'https://google.com', 'https://microsoft.com'].map((domain) => (
                   <button
                     key={domain}
                     onClick={() => setUrl(domain)}
-                    className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2 px-3 rounded transition"
+                    className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2 px-2 sm:px-3 rounded transition truncate"
                   >
-                    {domain}
+                    {domain.replace('https://', '')}
                   </button>
                 ))}
               </div>

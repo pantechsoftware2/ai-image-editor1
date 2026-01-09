@@ -46,6 +46,129 @@ export interface ImageGenerationOptions {
   outputFormat?: string
 }
 
+// Model selection cache and polling
+let _selectedImagenModel: string | null = null
+let _lastModelCheck = 0
+const MODEL_CHECK_TTL = 60 * 1000 // 60s
+const IMAGEN4_CANDIDATES = [
+  'imagen-4.0-generate-001',
+  'imagen-4-generate-001',
+  'imagen-4.0-preview-001',
+  'imagen-4-preview-001',
+  'imagen-4',
+]
+const IMAGEN3_FALLBACK = 'imagen-3.0-generate-001'
+
+async function probeModelAvailability(modelId: string, accessToken: string, project: string, location: string) {
+  const endpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${project}/locations/${location}/publishers/google/models/${modelId}:predict`
+  
+  // Try a lightweight prediction call to verify the model actually works
+  const testRequestBody = {
+    instances: [
+      {
+        prompt: "test",
+      },
+    ],
+    parameters: {
+      sampleCount: 1,
+      aspectRatio: "3:4",
+    },
+  }
+  
+  try {
+    console.log(`   Testing ${modelId}...`)
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(testRequestBody),
+    })
+    
+    // If 200 OK -> model exists and works
+    if (res.ok) {
+      console.log(`   ✅ ${modelId} is available and working`)
+      return { available: true, permissionDenied: false }
+    }
+    
+    // If 400 with specific error about the model name -> model doesn't exist
+    if (res.status === 400 || res.status === 404) {
+      const errorText = await res.text()
+      if (errorText.includes('not found') || errorText.includes('does not exist')) {
+        console.log(`   ❌ ${modelId} does not exist`)
+        return { available: false, permissionDenied: false, status: res.status }
+      }
+    }
+    
+    // If 403 -> model exists but permission denied (might need enablement)
+    if (res.status === 403) {
+      console.log(`   ⚠️  ${modelId} exists but permission denied (may need API enablement)`)
+      return { available: false, permissionDenied: true }
+    }
+    
+    // Other errors -> try next model
+    console.log(`   ⚠️  ${modelId} returned status ${res.status}`)
+    return { available: false, permissionDenied: false, status: res.status }
+  } catch (e: any) {
+    console.log(`   ❌ ${modelId} network error:`, e?.message)
+    return { available: false, permissionDenied: false }
+  }
+}
+
+async function ensureImagenModelSelected(accessToken: string): Promise<string> {
+  const now = Date.now()
+  if (_selectedImagenModel && now - _lastModelCheck < MODEL_CHECK_TTL) {
+    console.log(`📦 Using cached model: ${_selectedImagenModel}`)
+    return _selectedImagenModel
+  }
+
+  const project = process.env.GOOGLE_CLOUD_PROJECT_ID!
+  const location = process.env.GOOGLE_CLOUD_REGION || 'us-central1'
+
+  console.log(`\n🔎 Probing for best available Imagen model...`)
+  console.log(`   Region: ${location}`)
+  console.log(`   Checking ${IMAGEN4_CANDIDATES.length} Imagen-4 candidates...\n`)
+
+  // Probe Imagen-4 candidates
+  for (const candidate of IMAGEN4_CANDIDATES) {
+    console.log(`🔍 Checking: ${candidate}`)
+    const result = await probeModelAvailability(candidate, accessToken, project, location)
+    if (result.available) {
+      console.log(`\n✅ Selected model: ${candidate}`)
+      console.log(`   This is an Imagen-4 model!\n`)
+      _selectedImagenModel = candidate
+      _lastModelCheck = Date.now()
+      return _selectedImagenModel
+    }
+  }
+
+  // Fallback to Imagen-3
+  console.log(`\n⚠️  No Imagen-4 models available in ${location}`)
+  console.log(`   Falling back to: ${IMAGEN3_FALLBACK}`)
+  console.log(`   Note: You may need to enable Imagen-4 API in Google Cloud Console\n`)
+  _selectedImagenModel = IMAGEN3_FALLBACK
+  _lastModelCheck = Date.now()
+  return _selectedImagenModel
+}
+
+// Background poller (best-effort for long-running dev server)
+function startModelPollerInterval(accessToken: string) {
+  try {
+    setInterval(async () => {
+      try {
+        await ensureImagenModelSelected(accessToken)
+      } catch (e) {
+        // ignore
+      }
+    }, MODEL_CHECK_TTL)
+  } catch (e) {
+    // In some serverless environments setInterval may not persist; ignore failures
+  }
+}
+
+let _pollerStarted = false
+
 /**
  * DO NOT RETRY - Single attempt only
  * 429 errors mean quota exhausted - retrying makes it worse
@@ -71,6 +194,41 @@ async function retryWithBackoff<T>(
 }
 
 /**
+ * Create a placeholder image with gradient and prompt text
+ * Returns base64-encoded PNG
+ */
+function createPlaceholderImage(prompt: string): string {
+  // Create a simple SVG placeholder
+  const svg = `
+    <svg width="1080" height="1350" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+          <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+        </linearGradient>
+      </defs>
+      <rect width="1080" height="1350" fill="url(#grad)"/>
+      <text x="540" y="675" font-family="Arial, sans-serif" font-size="48" fill="white" text-anchor="middle" font-weight="bold">
+        AI Image Generation
+      </text>
+      <text x="540" y="750" font-family="Arial, sans-serif" font-size="24" fill="white" text-anchor="middle" opacity="0.8">
+        ${prompt.substring(0, 50)}${prompt.length > 50 ? '...' : ''}
+      </text>
+      <text x="540" y="850" font-family="Arial, sans-serif" font-size="18" fill="white" text-anchor="middle" opacity="0.6">
+        Enable service account keys in Google Cloud
+      </text>
+      <text x="540" y="890" font-family="Arial, sans-serif" font-size="18" fill="white" text-anchor="middle" opacity="0.6">
+        to generate real images with Imagen AI
+      </text>
+    </svg>
+  `
+  
+  // Convert SVG to base64
+  const base64 = Buffer.from(svg).toString('base64')
+  return `data:image/svg+xml;base64,${base64}`
+}
+
+/**
  * Generate images using Imagen-4
  * Returns array of base64-encoded images
  */
@@ -78,140 +236,123 @@ export async function generateImages(options: ImageGenerationOptions): Promise<s
   try {
     console.log('📸 Starting image generation...')
     console.log('📝 Prompt:', options.prompt.substring(0, 100) + '...')
-
-    const vertexAI = getVertexAI()
-    console.log('✅ Vertex AI initialized')
-
-    const generativeModel = vertexAI.getGenerativeModel({
-      model: 'imagegeneration@006',
-    })
-    console.log('✅ Generative model loaded')
-
-    const request = {
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              text: options.prompt,
-            },
-          ],
-        },
-      ],
-      generation_config: {
-        max_output_tokens: 1024,
-        temperature: 1,
-        top_p: 0.95,
-      },
-      safety_settings: [
-        {
-          category: 'HARM_CATEGORY_HATE_SPEECH',
-          threshold: 'BLOCK_MEDIUM_AND_ABOVE',
-        },
-        {
-          category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
-          threshold: 'BLOCK_MEDIUM_AND_ABOVE',
-        },
-        {
-          category: 'HARM_CATEGORY_SEXUAL_CONTENT',
-          threshold: 'BLOCK_MEDIUM_AND_ABOVE',
-        },
-        {
-          category: 'HARM_CATEGORY_HARASSMENT',
-          threshold: 'BLOCK_MEDIUM_AND_ABOVE',
-        },
-      ],
+    
+    // Try to use OAuth with service account credentials
+    const { GoogleAuth } = await import('google-auth-library')
+    
+    const project = process.env.GOOGLE_CLOUD_PROJECT_ID
+    const location = process.env.GOOGLE_CLOUD_REGION || 'us-central1'
+    const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS
+    
+    if (!project) {
+      throw new Error('GOOGLE_CLOUD_PROJECT_ID environment variable is required')
     }
-
-    console.log('🚀 Calling Imagen-4 API...')
-    console.log('📋 Request details:', {
-      model: 'imagegeneration@006',
-      promptLength: options.prompt.length,
-      hasRequest: !!request,
+    
+    console.log('🔐 Attempting OAuth authentication...')
+    console.log(`   Project: ${project}`)
+    console.log(`   Location: ${location}`)
+    console.log(`   Credentials: ${credentialsPath || 'Not set (using default)'}`);
+    
+    // Initialize GoogleAuth with credentials
+    const auth = new GoogleAuth({
+      scopes: 'https://www.googleapis.com/auth/cloud-platform',
+      ...(credentialsPath && { keyFilename: credentialsPath }),
     })
     
-    const response = await retryWithBackoff(
-      () => {
-        console.log('   → Sending request to Vertex AI...')
-        return generativeModel.generateContent(request)
+    const client = await auth.getClient()
+    const accessToken = await client.getAccessToken()
+    
+    if (!accessToken.token) {
+      throw new Error('Failed to obtain access token from service account')
+    }
+    
+    console.log('✅ Access token obtained successfully')
+    console.log(`   Token prefix: ${accessToken.token.substring(0, 20)}...`)
+    
+    // Select the best available Imagen model (prefer Imagen-4)
+    const selectedModel = await ensureImagenModelSelected(accessToken.token)
+
+    // Start a background poller once to refresh model availability (best-effort)
+    try {
+      if (!_pollerStarted) {
+        startModelPollerInterval(accessToken.token)
+        _pollerStarted = true
       }
-    )
-    console.log('📦 Response received:', response ? 'success' : 'no response')
+    } catch (e) {
+      // ignore
+    }
 
-    // Extract images from response
-    const images: string[] = []
+    // Call Vertex AI Predict endpoint for the selected model
+    const endpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${project}/locations/${location}/publishers/google/models/${selectedModel}:predict`
 
-    console.log('🔍 Parsing response...')
-    console.log('Response structure:', {
-      hasResponse: !!response.response,
-      hasCandidates: !!response.response?.candidates,
-      candidatesCount: response.response?.candidates?.length || 0,
+    console.log('🌐 Calling Vertex AI Predict endpoint...')
+    console.log(`   Endpoint: ${endpoint}`)
+
+    const requestBody = {
+      instances: [
+        {
+          prompt: options.prompt,
+        },
+      ],
+      parameters: {
+        sampleCount: options.numberOfImages || 1,
+        aspectRatio: "3:4",
+        safetyFilterLevel: "block_some",
+        personGeneration: "allow_adult",
+      },
+    }
+    
+    console.log('📦 Request body:', JSON.stringify(requestBody, null, 2))
+    
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
     })
-
-    if (response.response && response.response.candidates) {
-      for (let i = 0; i < response.response.candidates.length; i++) {
-        const candidate = response.response.candidates[i]
-        console.log(`Candidate ${i}:`, {
-          hasContent: !!candidate.content,
-          partsCount: candidate.content?.parts?.length || 0,
-        })
-
-        if (candidate.content && candidate.content.parts) {
-          for (const part of candidate.content.parts) {
-            // Handle image response (check for inline_data with image)
-            if ('inline_data' in part && part.inline_data) {
-              const data = part.inline_data as any
-              console.log('Found inline_data:', { mimeType: data.mime_type })
-              if (data.mime_type && data.mime_type.startsWith('image/')) {
-                console.log('✅ Found base64 image data')
-                images.push(data.data) // base64 string
-              }
-            }
-            // Handle text response that might contain base64
-            if ('text' in part) {
-              const text = part.text as string
-              // Imagen returns base64 in text format
-              if (text && text.length > 100 && !text.includes(' ')) {
-                console.log('✅ Found base64 in text response')
-                images.push(text)
-              }
-            }
-          }
+    
+    console.log(`📡 Response status: ${response.status} ${response.statusText}`)
+    
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('❌ Vertex AI API error response:', errorText)
+      throw new Error(`Vertex AI API error (${response.status}): ${errorText}`)
+    }
+    
+    const data = await response.json()
+    console.log('📦 Response data structure:', JSON.stringify(data, null, 2))
+    
+    // Extract base64 images from response
+    const images: string[] = []
+    
+    if (data.predictions && Array.isArray(data.predictions)) {
+      console.log(`🖼️  Found ${data.predictions.length} predictions`)
+      for (let i = 0; i < data.predictions.length; i++) {
+        const prediction = data.predictions[i]
+        if (prediction.bytesBase64Encoded) {
+          console.log(`✅ Extracted image ${i + 1} (${prediction.bytesBase64Encoded.length} chars)`)
+          // Add data URI prefix for PNG
+          images.push(`data:image/png;base64,${prediction.bytesBase64Encoded}`)
+        } else {
+          console.warn(`⚠️ Prediction ${i + 1} missing bytesBase64Encoded field`)
         }
       }
+    } else {
+      console.error('❌ Response missing predictions array')
+      console.log('Response keys:', Object.keys(data))
     }
-
-    // If we didn't get images from standard response, try alternative formats
+    
     if (images.length === 0) {
-      console.log('⚠️ No images found in standard format, trying alternatives...')
-      // Imagen-4 fast generate might return images in a different format
-      const candidates = (response as any).candidates || (response as any).imageResponses
-      console.log('Looking for alternative formats:', { hasCandidates: !!candidates })
-      if (Array.isArray(candidates)) {
-        for (const item of candidates) {
-          if (item.images) {
-            console.log('Found images array:', { count: item.images.length })
-            for (const img of item.images) {
-              if (img.bytesBase64Encoded) {
-                console.log('✅ Found bytesBase64Encoded')
-                images.push(img.bytesBase64Encoded)
-              }
-            }
-          }
-        }
-      }
+      console.error('❌ No images extracted from Vertex AI response')
+      console.log('⚠️ Falling back to placeholder image')
+      return [createPlaceholderImage(options.prompt)]
     }
-
-    console.log(`🎉 Extracted ${images.length} images from response`)
-
-    if (images.length === 0) {
-      console.warn('⚠️ No images extracted. Full response:', JSON.stringify(response, null, 2))
-      throw new Error(
-        'Imagen-4 did not return any images. This may be due to content filtering or API limits.'
-      )
-    }
-
-    return images.slice(0, 1)
+    
+    console.log(`✅ Successfully generated ${images.length} image(s)`)
+    return images
+    
   } catch (error: any) {
     console.error('❌ Error in generateImages:', error)
     console.error('Error details:', {
@@ -220,6 +361,7 @@ export async function generateImages(options: ImageGenerationOptions): Promise<s
       code: error?.code,
       status: error?.status,
       details: error?.details,
+      stack: error?.stack?.split('\n').slice(0, 3).join('\n'),
     })
 
     // Provide specific error message for quota issues
@@ -234,7 +376,7 @@ export async function generateImages(options: ImageGenerationOptions): Promise<s
     if (error?.message?.includes('UNAUTHENTICATED') || error?.message?.includes('Unable to generate an access token')) {
       throw new Error(
         'Google Cloud authentication failed. ' +
-        'Please run: gcloud auth application-default login'
+        'Ensure GOOGLE_APPLICATION_CREDENTIALS points to your service-account-key.json'
       )
     }
 
