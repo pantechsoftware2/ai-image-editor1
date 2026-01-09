@@ -56,23 +56,27 @@ export default function Dashboard() {
               </Card>
             </Link>
 
-            <Card className="bg-slate-800/50 border-purple-500/30 hover:border-purple-500/60 hover:bg-slate-800 transition-all">
-              <div className="p-8">
-                <div className="text-4xl mb-4">📁</div>
-                <h3 className="text-xl font-semibold text-white mb-2">My Projects</h3>
-                <p className="text-purple-200/70 mb-4">No projects yet</p>
-                <Button className="w-full bg-purple-600 hover:bg-purple-700">Browse</Button>
-              </div>
-            </Card>
+            <Link href="/projects" className="block">
+              <Card className="bg-slate-800/50 border-purple-500/30 hover:border-purple-500/60 hover:bg-slate-800 transition-all cursor-pointer h-full">
+                <div className="p-8 h-full flex flex-col items-center justify-center">
+                  <div className="text-4xl mb-4">📁</div>
+                  <h3 className="text-xl font-semibold text-white mb-2">My Projects</h3>
+                  <p className="text-purple-200/70 text-center mb-4">View all your saved designs</p>
+                  <Button className="w-full bg-purple-600 hover:bg-purple-700">Browse</Button>
+                </div>
+              </Card>
+            </Link>
 
-            <Card className="bg-slate-800/50 border-purple-500/30 hover:border-purple-500/60 hover:bg-slate-800 transition-all">
-              <div className="p-8">
-                <div className="text-4xl mb-4">⚙️</div>
-                <h3 className="text-xl font-semibold text-white mb-2">Settings</h3>
-                <p className="text-purple-200/70 mb-4">Manage your brand profile</p>
-                <Button className="w-full bg-purple-600 hover:bg-purple-700">Configure</Button>
-              </div>
-            </Card>
+            <Link href="/settings" className="block">
+              <Card className="bg-slate-800/50 border-purple-500/30 hover:border-purple-500/60 hover:bg-slate-800 transition-all cursor-pointer h-full">
+                <div className="p-8 h-full flex flex-col items-center justify-center">
+                  <div className="text-4xl mb-4">⚙️</div>
+                  <h3 className="text-xl font-semibold text-white mb-2">Settings</h3>
+                  <p className="text-purple-200/70 text-center mb-4">Manage your brand profile</p>
+                  <Button className="w-full bg-purple-600 hover:bg-purple-700">Configure</Button>
+                </div>
+              </Card>
+            </Link>
           </div>
 
           {/* Getting Started */}

@@ -249,37 +249,32 @@ export async function POST(request: NextRequest): Promise<NextResponse<GenerateI
       )
     }
 
-    console.log(`✨ Generated ${base64Images.length} images, uploading to Supabase Storage...`)
+    console.log(`✨ Generated ${base64Images.length} images`)
 
-    // Store images in Supabase Storage
-    const supabase = getSupabaseClient()
+    // Return base64 images immediately (fallback if Supabase upload fails)
     const generatedImages: GeneratedImage[] = []
     const batchId = uuidv4()
 
     for (let i = 0; i < base64Images.length; i++) {
+      const base64Data = base64Images[i]
+      const imageId = uuidv4()
+      const timestamp = new Date().toISOString().split('T')[0]
+      const userId_str = userId || 'anonymous'
+      const storagePath = `generated-images/${userId_str}/${timestamp}/${batchId}/${imageId}.png`
+
+      // Try to upload to Supabase, but don't block on failure
       try {
-        const base64Data = base64Images[i]
-        const imageId = uuidv4()
+        console.log(`⬆️  Attempting to upload image ${i + 1} to Supabase Storage...`)
+        const supabase = getSupabaseClient()
 
         // Convert base64 to buffer
         let imageBuffer: Buffer
-
-        // Handle different base64 formats
         if (base64Data.startsWith('data:image')) {
-          // Remove data URL prefix
           const base64String = base64Data.split(',')[1]
           imageBuffer = Buffer.from(base64String, 'base64')
         } else {
-          // Direct base64
           imageBuffer = Buffer.from(base64Data, 'base64')
         }
-
-        // Create storage path
-        const timestamp = new Date().toISOString().split('T')[0]
-        const userId_str = userId || 'anonymous'
-        const storagePath = `generated-images/${userId_str}/${timestamp}/${batchId}/${imageId}.png`
-
-        console.log(`⬆️  Uploading image ${i + 1}/4 to ${storagePath}`)
 
         // Upload to Supabase Storage
         const { data: uploadData, error: uploadError } = await supabase.storage
@@ -289,28 +284,37 @@ export async function POST(request: NextRequest): Promise<NextResponse<GenerateI
             upsert: false,
           })
 
-        if (uploadError) {
-          console.error(`Upload error for image ${i + 1}:`, uploadError)
-          throw uploadError
+        if (!uploadError) {
+          const { data: { publicUrl } } = supabase.storage.from('images').getPublicUrl(storagePath)
+          generatedImages.push({
+            id: imageId,
+            url: publicUrl,
+            base64: base64Data,
+            storagePath,
+            createdAt: new Date().toISOString(),
+          })
+          console.log(`✅ Image ${i + 1} uploaded: ${publicUrl}`)
+        } else {
+          console.warn(`⚠️  Supabase upload failed for image ${i + 1}, using base64 fallback:`, uploadError?.message)
+          // Fallback: use base64 URL directly
+          generatedImages.push({
+            id: imageId,
+            url: `data:image/png;base64,${base64Data.split(',')[1] || base64Data}`,
+            base64: base64Data,
+            storagePath: `(base64-fallback)`,
+            createdAt: new Date().toISOString(),
+          })
         }
-
-        // Get public URL
-        const {
-          data: { publicUrl },
-        } = supabase.storage.from('images').getPublicUrl(storagePath)
-
+      } catch (error: any) {
+        console.warn(`⚠️  Exception uploading image ${i + 1}:`, error?.message)
+        // Fallback: use base64 URL directly
         generatedImages.push({
           id: imageId,
-          url: publicUrl,
-          base64: base64Data, // Also return base64 for immediate display
-          storagePath,
+          url: `data:image/png;base64,${base64Data.split(',')[1] || base64Data}`,
+          base64: base64Data,
+          storagePath: `(base64-fallback)`,
           createdAt: new Date().toISOString(),
         })
-
-        console.log(`✅ Image ${i + 1}/4 uploaded: ${publicUrl}`)
-      } catch (error) {
-        console.error(`Failed to upload image ${i + 1}:`, error)
-        // Continue with other images even if one fails
       }
     }
 
@@ -320,7 +324,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<GenerateI
           success: false,
           images: [],
           prompt: completePrompt,
-          error: 'Failed to upload any images to storage',
+          error: 'Failed to generate any images',
         },
         { status: 500 }
       )

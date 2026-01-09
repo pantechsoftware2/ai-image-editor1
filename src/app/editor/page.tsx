@@ -1,202 +1,118 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Canvas } from '@/components/canvas'
-import { BrandConfirmationModal } from '@/components/brand-confirmation-modal'
-import { GenerationSpinner } from '@/components/generation-spinner'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { useState, useRef, useEffect } from 'react'
 import { Card } from '@/components/ui/card'
 import { Header } from '@/components/header'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Suspense } from 'react'
-import { getTierRequirements } from '@/lib/prompt-engineering'
+import { Button } from '@/components/ui/button'
 
-interface BrandData {
-  primaryColor: string
-  secondaryColor: string
-  accentColor: string
-  logo: string | null
-  fonts: string[]
-  palette: {
-    hex: string[]
-    name: string
-  }
+interface GeneratedImage {
+  id: string
+  url: string
+  base64?: string
+  storagePath: string
+  createdAt: string
 }
 
 export default function EditorPage() {
-  return (
-    <Suspense fallback={<div className="min-h-screen bg-black text-white flex items-center justify-center">Loading...</div>}>
-      <EditorPageContent />
-    </Suspense>
-  );
-}
-
-function EditorPageContent() {
-  const [url, setUrl] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [isGenerating, setIsGenerating] = useState(false)
+  // ============================================================
+  // ALL HOOKS DECLARED AT TOP LEVEL (React Rules of Hooks)
+  // ============================================================
+  const [prompt, setPrompt] = useState('')
+  const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [brandData, setBrandData] = useState<BrandData | null>(null)
-  const [showModal, setShowModal] = useState(false)
-  const [spinnerMessages, setSpinnerMessages] = useState<string[]>([])
-  const [lastGenerationTime, setLastGenerationTime] = useState<number>(0)
-  const [hasAttemptedAutoGen, setHasAttemptedAutoGen] = useState(false)
+  const [cooldown, setCooldown] = useState<number>(0)
+  const [result, setResult] = useState<any | null>(null)
+  const [editHeadline, setEditHeadline] = useState('')
+  const [editSubtitle, setEditSubtitle] = useState('')
+  const [isEditingHeadline, setIsEditingHeadline] = useState(false)
+  const [isEditingSubtitle, setIsEditingSubtitle] = useState(false)
+
+  const cooldownRef = useRef<NodeJS.Timeout | null>(null)
   const { user, loading: authLoading } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const prompt = searchParams.get('prompt')
 
+
+  // Auto-generate when prompt is available
   useEffect(() => {
-    if (!authLoading && !user) {
-      router.push('/login')
+    const urlPrompt = searchParams.get('prompt')
+    if (urlPrompt) {
+      setPrompt(decodeURIComponent(urlPrompt))
+      // Note: Generation will only happen when user clicks the button
+      // Not automatic - user has control
     }
-  }, [user, authLoading, router])
+  }, [searchParams])
 
-  // Auto-generate on mount if prompt exists - only runs ONCE
+  // Initialize edit values when result changes
   useEffect(() => {
-    if (prompt && !brandData && !isGenerating && !hasAttemptedAutoGen && user) {
-      setHasAttemptedAutoGen(true)
-      handleAutoGenerate(prompt)
+    if (result && result.images && result.images.length > 0) {
+      setEditHeadline(result.headline || 'Your Campaign')
+      setEditSubtitle(result.subtitle || 'AI-Generated Creative')
+      setIsEditingHeadline(false)
+      setIsEditingSubtitle(false)
     }
-  }, [prompt])
+  }, [result])
 
-  const handleAutoGenerate = async (userPrompt: string) => {
-    if (!userPrompt.trim()) return
-
-    // Check if enough time has passed since last attempt (20s rate limit + 2s buffer)
-    const now = Date.now()
-    const timeSinceLastGeneration = now - lastGenerationTime
-    if (lastGenerationTime > 0 && timeSinceLastGeneration < 22000) {
-      const waitTime = Math.ceil((22000 - timeSinceLastGeneration) / 1000)
-      setError(`Please wait ${waitTime}s before generating another image (rate limit protection)`)
-      setIsGenerating(false)
+  // Manual generation handler for button click
+  const handleGenerateImage = async () => {
+    if (!prompt.trim()) {
+      setError('❌ Please enter a marketing prompt.')
       return
     }
 
-    setIsGenerating(true)
+    setGenerating(true)
     setError(null)
-    
-    // Get tier-based loading messages
-    const tier = detectTierSimple(userPrompt)
-    const requirements = getTierRequirements(tier)
-    setSpinnerMessages(requirements.loadingMessages)
 
     try {
-      console.log('🚀 Auto-generating from prompt:', userPrompt)
-
       const response = await fetch('/api/generateImage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: userPrompt.trim(),
-          template: 'image-text',
-          userId: user?.id,
+          prompt: prompt.trim(),
+          userId: user?.id || 'anonymous',
         }),
       })
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        const errorMessage = errorData.error || 'Generation failed'
-        
-        // Handle 429 rate limit errors - record time and show message
-        if (response.status === 429) {
-          setLastGenerationTime(Date.now())
-          setError(errorMessage)
-          return
+      if (response.status === 429) {
+        const data = await response.json()
+        setError(data.error || 'Please wait before generating again.')
+        const match = /wait (\d+)s/i.exec(data.error || '')
+        if (match) {
+          let seconds = parseInt(match[1], 10)
+          setCooldown(seconds)
+          if (cooldownRef.current) clearInterval(cooldownRef.current)
+          cooldownRef.current = setInterval(() => {
+            setCooldown((prev) => {
+              if (prev <= 1) {
+                clearInterval(cooldownRef.current!)
+                return 0
+              }
+              return prev - 1
+            })
+          }, 1000)
         }
-        
-        throw new Error(errorMessage)
+        setGenerating(false)
+        return
+      }
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || 'Failed to generate image')
       }
 
       const data = await response.json()
-      console.log('✅ Generation complete:', data)
-      setLastGenerationTime(Date.now())
-      
-      // Store generated data in brandData (reusing structure)
-      setBrandData({
-        primaryColor: '#000000',
-        secondaryColor: '#FFFFFF',
-        accentColor: '#0066FF',
-        logo: data.images[0]?.url || null,
-        fonts: [],
-        palette: {
-          hex: ['#000000', '#FFFFFF', '#0066FF'],
-          name: 'Generated'
-        }
-      })
-    } catch (err: any) {
-      console.error('Generation error:', err)
-      setError(err.message || 'Failed to generate design. Please try again.')
-    } finally {
-      setIsGenerating(false)
-    }
-  }
-
-  // Simple tier detection (duplicate for UI)
-  const detectTierSimple = (userPrompt: string): 1 | 2 | 3 => {
-    const prompt = userPrompt.toLowerCase()
-    const tier3Keywords = [
-      'luxury', 'premium', 'exclusive', 'story', 'collection',
-      'presentation', 'launch', 'premiere', 'unveil', 'reveal',
-      'showcase', 'spectacular', 'gold', 'jewel', 'diamond',
-      'elegant', 'sophisticated', 'high-end', 'upscale',
-      'watch', 'jewelry', 'fragrance', 'couture', 'designer',
-      'flagship', 'limited edition', 'artisan', 'heritage'
-    ]
-    const tier2Keywords = [
-      'campaign', 'banner', 'announce', 'present', 'promote',
-      'social', 'post', 'design', 'graphic', 'poster',
-      'ad', 'advertisement', 'marketing', 'promotional'
-    ]
-    
-    if (tier3Keywords.some(keyword => prompt.includes(keyword))) return 3
-    if (tier2Keywords.some(keyword => prompt.includes(keyword))) return 2
-    return 1
-  }
-
-  const extractBrand = async (e: React.FormEvent) => {
-    e.preventDefault()
-
-    const cleanUrl = url.trim()
-    if (!cleanUrl) {
-      setError('❌ Please enter a website URL (e.g., apple.com or https://apple.com)')
-      return
-    }
-
-    setLoading(true)
-    setError(null)
-
-    try {
-      console.log('Extracting brand from:', url)
-
-      const response = await fetch('/api/extract-brand', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: url.trim() }),
-      })
-
-      if (!response.ok) {
-        throw new Error('Failed to extract brand data')
+      if (data.success) {
+        setResult(data)
+      } else {
+        throw new Error(data.error || 'Image generation failed')
       }
-
-      const data: BrandData = await response.json()
-      console.log('Brand data extracted:', data)
-
-      setBrandData(data)
-      setShowModal(true)
     } catch (err: any) {
-      console.error('Extraction error:', err)
-      setError(err.message || 'Failed to extract brand data. Please try again.')
+      setError(err.message || 'Failed to generate image. Please try again.')
     } finally {
-      setLoading(false)
+      setGenerating(false)
     }
-  }
-
-  const handleConfirmBrand = (data: BrandData) => {
-    setBrandData(data)
-    setShowModal(false)
   }
 
   if (authLoading) {
@@ -210,122 +126,169 @@ function EditorPageContent() {
     )
   }
 
-  // Show canvas if brand data is confirmed
-  if (brandData && !showModal) {
+  // Show "Slot Machine" Reveal when result is available
+  if (result && result.images && result.images.length > 0) {
+    const image = result.images[0]
+
+    const handleDownload = async () => {
+      try {
+        const link = document.createElement('a')
+        link.href = image.url || image.base64
+        link.download = `campaign-${Date.now()}.png`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+      } catch (err) {
+        console.error('Download failed:', err)
+      }
+    }
+
     return (
       <>
         <Header />
-        <GenerationSpinner isVisible={isGenerating} messages={spinnerMessages} />
-        <Canvas brandData={brandData} />
+        <div className="min-h-screen bg-black flex items-center justify-center p-4">
+          <div className="w-full max-w-3xl">
+            {/* Image with Editable Text Overlay - "Slot Machine Reveal" */}
+            <div className="relative rounded-xl overflow-hidden shadow-2xl mb-8">
+              <img
+                src={image.url || image.base64}
+                alt="Generated campaign"
+                className="w-full h-auto object-cover"
+              />
+              {/* Text Overlay at Bottom with Gradient Background */}
+              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-6 sm:p-8 min-h-[140px] flex flex-col justify-end">
+                {/* Editable Headline */}
+                <div className="mb-3 cursor-pointer group">
+                  {isEditingHeadline ? (
+                    <input
+                      autoFocus
+                      type="text"
+                      value={editHeadline}
+                      onChange={(e) => setEditHeadline(e.target.value)}
+                      onBlur={() => setIsEditingHeadline(false)}
+                      onKeyDown={(e) => e.key === 'Enter' && setIsEditingHeadline(false)}
+                      className="w-full text-2xl sm:text-4xl font-bold text-white bg-black/40 backdrop-blur px-3 py-2 rounded border border-white/30 focus:outline-none focus:border-white"
+                    />
+                  ) : (
+                    <h2
+                      onClick={() => setIsEditingHeadline(true)}
+                      className="text-2xl sm:text-4xl font-bold text-white leading-tight group-hover:text-white/80 transition"
+                    >
+                      {editHeadline}
+                    </h2>
+                  )}
+                  <p className="text-xs text-white/50 mt-1 group-hover:text-white/70">Click to edit</p>
+                </div>
+
+                {/* Editable Subtitle */}
+                <div className="cursor-pointer group">
+                  {isEditingSubtitle ? (
+                    <input
+                      autoFocus
+                      type="text"
+                      value={editSubtitle}
+                      onChange={(e) => setEditSubtitle(e.target.value)}
+                      onBlur={() => setIsEditingSubtitle(false)}
+                      onKeyDown={(e) => e.key === 'Enter' && setIsEditingSubtitle(false)}
+                      className="w-full text-base sm:text-lg text-white/90 bg-black/40 backdrop-blur px-3 py-2 rounded border border-white/30 focus:outline-none focus:border-white"
+                    />
+                  ) : (
+                    <p
+                      onClick={() => setIsEditingSubtitle(true)}
+                      className="text-base sm:text-lg text-white/90 group-hover:text-white transition"
+                    >
+                      {editSubtitle}
+                    </p>
+                  )}
+                  <p className="text-xs text-white/50 mt-1 group-hover:text-white/70">Click to edit</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <Button
+                onClick={handleDownload}
+                className="flex-1 sm:flex-none bg-white text-black hover:bg-white/90 font-semibold py-3 rounded-lg transition"
+              >
+                ⬇️ Download
+              </Button>
+              <Button
+                onClick={() => setResult(null)}
+                className="flex-1 sm:flex-none bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 rounded-lg transition"
+              >
+                🔄 Regenerate
+              </Button>
+              <Button
+                onClick={() => router.push('/dashboard')}
+                className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition"
+              >
+                💾 Save to Projects
+              </Button>
+            </div>
+
+            {/* Info Text */}
+            <div className="mt-6 text-center text-white/60 text-sm">
+              <p>Tip: Click on the headline or subtitle to edit. Your changes are saved automatically.</p>
+            </div>
+          </div>
+        </div>
       </>
     )
   }
 
-  // Show extraction form
+  // Show generation state
   return (
     <>
       <Header />
-      <GenerationSpinner isVisible={isGenerating} messages={spinnerMessages} />
-      <div className="min-h-screen bg-black flex items-center justify-center p-3 sm:p-4 lg:p-8 pt-16 sm:pt-20">
+      <div className="min-h-screen bg-black flex items-center justify-center p-4">
         <Card className="w-full max-w-md bg-white border-0 shadow-lg">
-          <div className="p-5 sm:p-6 md:p-8">
-            <div className="mb-3 sm:mb-4">
-              <span className="inline-block px-3 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full mb-4">
-                STEP 1: EXTRACT BRAND
-              </span>
-            </div>
-
-            <h1 className="text-2xl sm:text-3xl font-bold text-black mb-2">Brand DNA</h1>
-            <p className="text-gray-600 text-sm sm:text-base mb-6">
-              Enter a website URL to automatically extract brand colors, fonts, and logo
-            </p>
-
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-3 sm:px-4 py-2 sm:py-3 rounded-lg mb-4 text-xs sm:text-sm">
-                {error}
-              </div>
-            )}
-
-            <form onSubmit={extractBrand} className="space-y-4 mb-6">
-              <div>
-                <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
-                  Website URL
-                </label>
-                <Input
-                  type="url"
-                  placeholder="apple.com or https://apple.com"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  className="bg-gray-50 border-gray-300 text-black placeholder-gray-400 text-sm"
-                  disabled={loading}
-                  required
-                />
-                <p className="text-xs text-gray-500 mt-2">
-                  Try: apple.com, google.com, microsoft.com
+          <div className="p-8 text-center">
+            {generating ? (
+              <>
+                <div className="mb-6 flex justify-center">
+                  <div className="relative w-12 h-12">
+                    <div className="absolute inset-0 bg-gradient-to-r from-purple-400 to-pink-400 rounded-full animate-spin opacity-75"></div>
+                    <div className="absolute inset-1 bg-white rounded-full"></div>
+                  </div>
+                </div>
+                <h2 className="text-xl font-bold text-black mb-2">Creating Your Campaign</h2>
+                <p className="text-gray-600 text-sm">
+                  ⏳ Analyzing Intent... <br /> 📝 Drafting Copy... <br /> 🎨 Composing Shot...
                 </p>
-              </div>
-
-              <Button
-                type="submit"
-                className="w-full bg-black hover:bg-gray-900 text-white font-semibold py-2.5 sm:py-3 text-sm sm:text-base"
-                disabled={loading}
-              >
-                {loading ? (
-                  <>
-                    <span className="inline-block animate-spin mr-2">⌛</span>
-                    Extracting...
-                  </>
-                ) : (
-                  '✨ Extract Brand DNA'
-                )}
-              </Button>
-            </form>
-
-            {/* <div className="space-y-3 pt-6 border-t border-gray-200">
-              <div className="bg-blue-50 rounded-lg p-4 text-sm">
-                <p className="font-semibold text-blue-900 mb-2">How it works:</p>
-                <ol className="space-y-1 text-blue-800 text-xs">
-                  <li>• Scrapes website HTML and CSS</li>
-                  <li>• Extracts primary colors & fonts</li>
-                  <li>• Downloads brand logo</li>
-                  <li>• Creates color palette</li>
-                </ol>
-              </div>
-            </div> */}
-
-            {/* Quick examples */}
-            <div className="mt-6 sm:mt-8 pt-6 sm:pt-8 border-t border-gray-200">
-              <p className="text-xs font-semibold text-gray-700 mb-3 uppercase">
-                Quick Examples
-              </p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {['https://apple.com', 'https://google.com', 'https://microsoft.com'].map((domain) => (
-                  <button
-                    key={domain}
-                    onClick={() => setUrl(domain)}
-                    className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2 px-2 sm:px-3 rounded transition truncate"
+              </>
+            ) : (
+              <>
+                <h2 className="text-2xl font-bold text-black mb-4">Create Your Campaign</h2>
+                <div className="space-y-4">
+                  <input
+                    type="text"
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    placeholder="What are you marketing today?"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    disabled={cooldown > 0}
+                  />
+                  {error && (
+                    <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+                      {error}
+                      {cooldown > 0 && (
+                        <span className="ml-2 text-xs text-gray-700">({cooldown}s remaining)</span>
+                      )}
+                    </div>
+                  )}
+                  <Button
+                    onClick={handleGenerateImage}
+                    disabled={!prompt.trim() || cooldown > 0}
+                    className="w-full bg-black hover:bg-gray-900 text-white font-semibold py-2.5 rounded-lg"
                   >
-                    {domain.replace('https://', '')}
-                  </button>
-                ))}
-              </div>
-            </div>
+                    {cooldown > 0 ? `Please wait (${cooldown}s)` : '🚀 Generate'}
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
         </Card>
-
-        {/* Brand Confirmation Modal */}
-        {showModal && brandData && (
-          <BrandConfirmationModal
-            brandData={brandData}
-            onConfirm={handleConfirmBrand}
-            onCancel={() => {
-              setShowModal(false)
-              setBrandData(null)
-              setUrl('')
-            }}
-            isLoading={loading}
-          />
-        )}
       </div>
     </>
   )

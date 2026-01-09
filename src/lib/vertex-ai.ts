@@ -5,19 +5,11 @@
  */
 
 import { VertexAI } from '@google-cloud/vertexai'
-import fs from 'fs'
 
 // Server-side only - Initialize Vertex AI
 function getVertexAI(): VertexAI {
   if (typeof window !== 'undefined') {
     throw new Error('Vertex AI SDK can only be used server-side')
-  }
-
-  // Support GOOGLE_SERVICE_ACCOUNT_KEY as a JSON env var (for cloud deploys)
-  if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
-    const credsPath = '/tmp/gcp-creds.json'
-    fs.writeFileSync(credsPath, process.env.GOOGLE_SERVICE_ACCOUNT_KEY, { encoding: 'utf8' })
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = credsPath
   }
 
   const project = process.env.GOOGLE_CLOUD_PROJECT_ID
