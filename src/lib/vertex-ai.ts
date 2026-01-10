@@ -242,21 +242,33 @@ export async function generateImages(options: ImageGenerationOptions): Promise<s
     
     const project = process.env.GOOGLE_CLOUD_PROJECT_ID
     const location = process.env.GOOGLE_CLOUD_REGION || 'us-central1'
-    const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS
+    const serviceAccountKey = process.env.GOOGLE_SERVICE_ACCOUNT_KEY
     
     if (!project) {
       throw new Error('GOOGLE_CLOUD_PROJECT_ID environment variable is required')
+    }
+
+    if (!serviceAccountKey) {
+      throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY environment variable is required')
     }
     
     console.log('🔐 Attempting OAuth authentication...')
     console.log(`   Project: ${project}`)
     console.log(`   Location: ${location}`)
-    console.log(`   Credentials: ${credentialsPath || 'Not set (using default)'}`);
+    console.log(`   Service Account: Using GOOGLE_SERVICE_ACCOUNT_KEY`);
     
-    // Initialize GoogleAuth with credentials
+    // Parse the service account key
+    let credentials: any
+    try {
+      credentials = typeof serviceAccountKey === 'string' ? JSON.parse(serviceAccountKey) : serviceAccountKey
+    } catch (e) {
+      throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY is not valid JSON')
+    }
+
+    // Initialize GoogleAuth with parsed credentials
     const auth = new GoogleAuth({
+      credentials,
       scopes: 'https://www.googleapis.com/auth/cloud-platform',
-      ...(credentialsPath && { keyFilename: credentialsPath }),
     })
     
     const client = await auth.getClient()
