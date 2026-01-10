@@ -6,6 +6,7 @@ import { Header } from '@/components/header'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
+import { createClient } from '@/lib/supabase'
 
 interface GeneratedImage {
   id: string
@@ -28,6 +29,7 @@ export default function EditorPage() {
   const [editSubtitle, setEditSubtitle] = useState('')
   const [isEditingHeadline, setIsEditingHeadline] = useState(false)
   const [isEditingSubtitle, setIsEditingSubtitle] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
 
   const cooldownRef = useRef<NodeJS.Timeout | null>(null)
   const { user, loading: authLoading } = useAuth()
@@ -64,6 +66,12 @@ export default function EditorPage() {
 
     setGenerating(true)
     setError(null)
+    // Clear any existing cooldown interval
+    if (cooldownRef.current) {
+      clearInterval(cooldownRef.current)
+      cooldownRef.current = null
+    }
+    setCooldown(0)
 
     try {
       const response = await fetch('/api/generateImage', {
@@ -86,7 +94,10 @@ export default function EditorPage() {
           cooldownRef.current = setInterval(() => {
             setCooldown((prev) => {
               if (prev <= 1) {
-                clearInterval(cooldownRef.current!)
+                if (cooldownRef.current) {
+                  clearInterval(cooldownRef.current)
+                  cooldownRef.current = null
+                }
                 return 0
               }
               return prev - 1
@@ -105,6 +116,12 @@ export default function EditorPage() {
       const data = await response.json()
       if (data.success) {
         setResult(data)
+        // Clear cooldown on successful generation
+        setCooldown(0)
+        if (cooldownRef.current) {
+          clearInterval(cooldownRef.current)
+          cooldownRef.current = null
+        }
       } else {
         throw new Error(data.error || 'Image generation failed')
       }
@@ -112,6 +129,68 @@ export default function EditorPage() {
       setError(err.message || 'Failed to generate image. Please try again.')
     } finally {
       setGenerating(false)
+    }
+  }
+
+  // Save project handler
+  const handleSaveProject = async () => {
+    if (!result || !result.images || result.images.length === 0) {
+      setError('No images to save')
+      return
+    }
+
+    if (!user?.id) {
+      setError('You must be logged in to save projects')
+      return
+    }
+
+    setIsSaving(true)
+    setError(null)
+    try {
+      // Get the session token from Supabase for authentication
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+
+      const response = await fetch('/api/projects/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          title: editHeadline || 'Untitled Project',
+          description: prompt,
+          prompt: prompt,
+          tier: 1,
+          images: result.images.map((img: any) => ({
+            url: img.url || img.base64,
+            storagePath: img.storagePath || `user-${user.id}/image-${Date.now()}`,
+          })),
+          headline: editHeadline,
+          subtitle: editSubtitle,
+          token: token,
+        }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || 'Failed to save project')
+      }
+
+      const data = await response.json()
+      if (data.success) {
+        setError(null)
+        // Show success message and redirect
+        setTimeout(() => {
+          router.push('/projects')
+        }, 500)
+      } else {
+        throw new Error(data.error || 'Failed to save project')
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to save project')
+      console.error('Save error:', err)
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -220,10 +299,11 @@ export default function EditorPage() {
                 🔄 Regenerate
               </Button>
               <Button
-                onClick={() => router.push('/dashboard')}
-                className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition"
+                onClick={handleSaveProject}
+                disabled={isSaving}
+                className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                💾 Save to Projects
+                {isSaving ? '⏳ Saving...' : '💾 Save to Projects'}
               </Button>
             </div>
 
